@@ -208,7 +208,9 @@ function ben02(monthOffset: number): SeedTransfer {
 
 const FIRST_REF = 240108;
 const RETURN_REASON = "recipient bank reported a name mismatch";
-const RETURNED_REFUND_MINOR = 49200; // 492 AED: refunded at the return-date rate, fee kept
+// 485 AED converted at the August board rate (25.7268) -> 12,477.49 INR; returned and bought back at
+// the 17 Aug rate plus margin (26.2683) -> 475.00 AED: a 10 AED FX loss, and the 15 AED fee is kept.
+const RETURNED_REFUND_MINOR = 47500;
 
 function at(now: Date, monthOffset: number, day: number, minutes = 0): Date {
   return new Date(

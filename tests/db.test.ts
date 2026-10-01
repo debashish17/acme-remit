@@ -96,7 +96,7 @@ describe("seed", () => {
     expect(timeline.map((e) => e.status)).toEqual(["FUNDS_RECEIVED", "SCREENING", "ON_HOLD"]);
   });
 
-  it("seeds the RETURNED transfer with a 492 AED refund and the fee kept", () => {
+  it("seeds the RETURNED transfer with a 475 AED refund: FX loss and fee kept", () => {
     seed(db, NOW);
     const t = db.prepare("SELECT * FROM transfers WHERE status = 'RETURNED'").get() as Record<
       string,
@@ -104,7 +104,7 @@ describe("seed", () => {
     >;
     expect(t.beneficiary_id).toBe("ben_03");
     expect(t.created_at).toBe("2026-08-15T09:00:00.000Z");
-    expect(t.refund_minor).toBe(49_200);
+    expect(t.refund_minor).toBe(47_500);
     expect(t.return_reason).toBe("recipient bank reported a name mismatch");
     expect(t.utr).toBeNull();
   });

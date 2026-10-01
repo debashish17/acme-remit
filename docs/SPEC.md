@@ -130,7 +130,7 @@ out: { "transfer_ref": "ACM-240133", "status": "PAID_OUT", "recipient": "Mum", "
                      { "status": "SENT_TO_PARTNER", "at": "..." }, { "status": "PAID_OUT", "at": "..." } ] }
   or { "status": "ON_HOLD", "customer_label": "Under review",
        "action_required": { "type": "RFI", "document": "updated Emirates ID", "how": "upload in the Acme app", "deadline": "2026-10-05" } }
-  or { "status": "RETURNED", "reason": "recipient bank reported a name mismatch", "refund": { "amount": 492, "currency": "AED",
+  or { "status": "RETURNED", "reason": "recipient bank reported a name mismatch", "refund": { "amount": 475, "currency": "AED",
        "note": "refunded at the rate on the return date; fee not refunded", "eta": "2-7 working days" } }
 
 // 9 get_transfer_history
@@ -293,7 +293,7 @@ CREATE INDEX transfer_events_ref ON transfer_events (ref, at);
 | `ben_02` | Rahul, Rahul Nair, brother, UPI `rahul.nair@okhdfc`, Pune, Maharashtra, name verified, purpose family\_maintenance, aliases `["rahul","brother","bhai"]` |
 | `ben_03` | Rahul (college), Rahul Menon, friend, bank deposit, ICICI Bank, acct \*\*\*\*3302, Kochi, Kerala, name verified, purpose gift, aliases `["rahul menon","college rahul"]` |
 | `ben_04` | My NRE account, Priya Nair, self, bank deposit, SBI, acct \*\*\*\*0917, NRE, Chandigarh, purpose savings\_own\_account, aliases `["my account","nre","savings","myself"]` |
-| Transfers, past | 7 months: 2,000 AED to Mum on the 2nd of each month, PAID\_OUT with UTRs. 1,500 AED to brother in Jul and Sep by UPI. 500 AED to friend in Aug: RETURNED (name mismatch), refund 492 AED, fee kept |
+| Transfers, past | 7 months: 2,000 AED to Mum on the 2nd of each month, PAID\_OUT with UTRs. 1,500 AED to brother in Jul and Sep by UPI. 500 AED to friend in Aug: RETURNED (name mismatch), refund 475 AED (485 converted, about 10 lost to the rate on the return date), fee kept |
 | Transfers, this month | Mum 2,000 (2nd, PAID\_OUT), brother 1,500 (5th, PAID\_OUT), NRE account 13,000 (10th, ON\_HOLD, RFI: updated Emirates ID). Monthly used 16,500 of 20,000, so one more 2,000 passes and the next 3,000 refuses on camera |
 | Rates history | 7 days each for AED/INR, USD/INR, GBP/INR, pulled once from Frankfurter when writing the seed script and hard-coded; AED/INR derived from USD/INR at the 3.6725 peg |
 | Limits config | Tier Verified: per transaction 5,000 AED, daily 10,000, monthly 20,000, new-recipient first transfer 2,000, source-of-funds threshold 15,000. Cash pickup 9,180 AED per transaction, 30 per recipient per year, 50,000 INR cash cap. Next tier Verified Plus (salary proof): monthly 60,000 |
