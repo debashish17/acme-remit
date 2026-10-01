@@ -160,13 +160,14 @@ export class RatesService {
   /**
    * Fetches the last two weeks and updates cache and history. Concurrent callers share one
    * request; after a failure, retries wait a minute so an outage cannot slow every call.
+   * Background callers pass a generous timeout; a tool call on a cold cache uses the short default.
    */
-  refresh(): Promise<boolean> {
+  refresh(timeoutMs: number = this.timeoutMs): Promise<boolean> {
     if (this.inflight) return this.inflight;
     if (this.now().getTime() - this.lastFailureAt < RETRY_AFTER_FAILURE_MS) {
       return Promise.resolve(false);
     }
-    this.inflight = this.fetchSeries()
+    this.inflight = this.fetchSeries(timeoutMs)
       .then((ok) => {
         if (!ok) this.lastFailureAt = this.now().getTime();
         return ok;
@@ -177,11 +178,11 @@ export class RatesService {
     return this.inflight;
   }
 
-  private async fetchSeries(): Promise<boolean> {
+  private async fetchSeries(timeoutMs: number): Promise<boolean> {
     const start = new Date(this.now().getTime() - 14 * 86_400_000).toISOString().slice(0, 10);
     const url = `${this.baseUrl}/${start}..?from=USD&to=INR,GBP`;
     try {
-      const res = await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeoutMs) });
+      const res = await this.fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const series = SeriesSchema.parse(await res.json());
       const days = Object.keys(series.rates).sort();
