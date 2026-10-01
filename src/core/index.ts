@@ -1,4 +1,5 @@
 import type { Db } from "../db/connection.js";
+import { AlertService } from "./alerts.js";
 import { BeneficiaryService } from "./beneficiaries.js";
 import { ConfirmationGate } from "./confirm.js";
 import { LedgerService, type CardGateway } from "./ledger.js";
@@ -57,8 +58,9 @@ export function createCore(deps: CoreDeps) {
     ...(deps.stepMs ? { stepMs: deps.stepMs } : {}),
   });
   const beneficiaries = new BeneficiaryService(db);
+  const alerts = new AlertService(db, rates, now);
 
-  return { db, rates, limits, gate, quotes, ledger, beneficiaries };
+  return { db, rates, limits, gate, quotes, ledger, beneficiaries, alerts };
 }
 
 export type Core = ReturnType<typeof createCore>;
