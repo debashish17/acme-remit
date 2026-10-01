@@ -1,16 +1,18 @@
-import { pathToFileURL } from "node:url";
 import { applyMargin, receiveMinor } from "../core/money.js";
 import { DEMO_USER_ID, FX_MARGIN_BP, PAYOUT_POLICY } from "../core/policy.js";
 import { deriveAedInr } from "../core/rates.js";
+import { startOfDubaiDay } from "../core/time.js";
 import type { PayoutMethod } from "../core/types.js";
 import { makeUtr } from "../core/utr.js";
-import { openDb, type Db } from "./connection.js";
-import { migrate } from "./migrate.js";
+import type { Db } from "./connection.js";
 
 /**
  * Demo seed from docs/SPEC.md "Data model and seed data". Wipes every table and reloads,
- * so each demo take starts identical. Dates are anchored to the month of `now` (UTC):
+ * so each demo take starts identical. Dates are anchored to the Dubai calendar month of `now`:
  * "this month" in the spec is the current month, "Jul/Aug/Sep" are the three months before it.
+ * This month's transfers keep their SPEC days (2nd, 5th, 10th) when those are in the past;
+ * otherwise they move to the latest earlier day this month, in order, so nothing is ever
+ * future-dated and today's daily limit starts unused. (Seeded on the 1st, they land earlier today.)
  * All amounts are integer minor units (fils, paise).
  */
 
@@ -213,9 +215,14 @@ const RETURN_REASON = "recipient bank reported a name mismatch";
 // the 17 Aug rate plus margin (26.2683) -> 475.00 AED: a 10 AED FX loss, and the 15 AED fee is kept.
 const RETURNED_REFUND_MINOR = 47500;
 
+const DUBAI_OFFSET_MS = 4 * 3_600_000;
+const dubai = (now: Date) => new Date(now.getTime() + DUBAI_OFFSET_MS);
+
+/** 09:00 UTC (13:00 in Dubai) on `day` of the Dubai month `monthOffset` months from now. */
 function at(now: Date, monthOffset: number, day: number, minutes = 0): Date {
+  const d = dubai(now);
   return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, day, 9, 0) + minutes * 60_000,
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + monthOffset, day, 9, 0) + minutes * 60_000,
   );
 }
 
@@ -266,30 +273,41 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
     const insEvent = db.prepare("INSERT INTO transfer_events (ref, status, at) VALUES (?, ?, ?)");
 
     let events = 0;
+    const today = dubai(now).getUTCDate();
+    let thisMonthIndex = 0;
     TRANSFERS.forEach((t, i) => {
+      // Never future-date: this month's transfers move before today if their SPEC day has not come.
+      const clamp = t.monthOffset === 0 && t.day >= today;
+      const day = clamp ? Math.max(1, today - 1) : t.day;
+      const base = t.monthOffset === 0 ? thisMonthIndex++ * 10 : 0;
+      // On the 1st there is no earlier day this month: start at Dubai midnight, steps in seconds.
+      const firstOfMonth = clamp && today === 1;
+      const start = firstOfMonth
+        ? new Date(startOfDubaiDay(now).getTime() + base * 1000)
+        : at(now, t.monthOffset, day, clamp ? base : 0);
+      const unit = firstOfMonth ? 1000 : 60_000;
+      const when = (dayDelta = 0, minutes = 0) =>
+        new Date(start.getTime() + dayDelta * 86_400_000 + minutes * unit);
       const ben = BENEFICIARIES.find((b) => b.id === t.beneficiaryId);
       const rate = boardRate(t.monthOffset);
       if (!ben || rate === undefined) throw new Error(`Bad seed row ${i}`);
       const ref = `ACM-${FIRST_REF + i}`;
       const feeMinor = PAYOUT_POLICY[ben.payout_method].feeMinor;
       const sendMinor = t.sendAed * 100;
-      const created = at(now, t.monthOffset, t.day);
+      const created = when();
 
       const timeline: [string, Date][] = [
         ["FUNDS_RECEIVED", created],
-        ["SCREENING", at(now, t.monthOffset, t.day, 1)],
+        ["SCREENING", when(0, 1)],
       ];
       let paidOut: Date | null = null;
       if (t.status === "PAID_OUT") {
-        paidOut = at(now, t.monthOffset, t.day, 3);
-        timeline.push(["SENT_TO_PARTNER", at(now, t.monthOffset, t.day, 2)], ["PAID_OUT", paidOut]);
+        paidOut = when(0, 3);
+        timeline.push(["SENT_TO_PARTNER", when(0, 2)], ["PAID_OUT", paidOut]);
       } else if (t.status === "RETURNED") {
-        timeline.push(
-          ["SENT_TO_PARTNER", at(now, t.monthOffset, t.day, 2)],
-          ["RETURNED", at(now, t.monthOffset, t.day + 2)],
-        );
+        timeline.push(["SENT_TO_PARTNER", when(0, 2)], ["RETURNED", when(2)]);
       } else {
-        timeline.push(["ON_HOLD", at(now, t.monthOffset, t.day, 2)]);
+        timeline.push(["ON_HOLD", when(0, 2)]);
       }
 
       // Customer-facing RFI only; a screening reason is never stored or emitted (CLAUDE.md rule 5).
@@ -299,7 +317,7 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
               type: "RFI",
               document: "updated Emirates ID",
               how: "upload in the Acme app",
-              deadline: ymd(at(now, t.monthOffset, t.day + 7)),
+              deadline: ymd(when(7)),
             })
           : null;
 
@@ -344,16 +362,4 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
     };
   });
   return run();
-}
-
-const isCli =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isCli) {
-  const { loadConfig } = await import("../config.js");
-  const { DB_PATH } = loadConfig();
-  const db = openDb(DB_PATH);
-  migrate(db);
-  const summary = seed(db);
-  db.close();
-  console.log(`Seeded ${DB_PATH}:`, summary);
 }

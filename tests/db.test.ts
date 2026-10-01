@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb, type Db } from "../src/db/connection.js";
 import { migrate } from "../src/db/migrate.js";
@@ -125,5 +126,57 @@ describe("seed", () => {
       };
       expect(n.n).toBe(4);
     }
+  });
+});
+
+describe("db modules", () => {
+  it("have no command-line side effects (the server bundles them)", () => {
+    for (const file of ["migrate.ts", "seed.ts", "connection.ts"]) {
+      const src = readFileSync(new URL(`../src/db/${file}`, import.meta.url), "utf8");
+      expect(src, file).not.toMatch(/process\.argv|import\.meta\.url === /);
+    }
+  });
+});
+
+describe("seed dates", () => {
+  const dubaiMonthStart = (now: Date) => {
+    const d = new Date(now.getTime() + 4 * 3_600_000);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - 4 * 3_600_000);
+  };
+
+  it.each([
+    ["2 Oct in Dubai, still 1 Oct in UTC (the live failure)", "2026-10-01T20:52:00Z", 0],
+    ["6 Oct: the 10th moves before today", "2026-10-06T10:00:00Z", 0],
+    ["mid-month: SPEC days unchanged", "2026-10-15T08:00:00Z", 0],
+    ["late on the 31st in Dubai", "2026-10-31T19:30:00Z", 0],
+    ["the 1st in Dubai: lands earlier today", "2026-10-31T21:00:00Z", 1_650_000],
+  ])("%s", (_label, at, expectedDailyUsed) => {
+    const now = new Date(at);
+    seed(db, now);
+    const rows = db
+      .prepare("SELECT ref, created_at, status FROM transfers ORDER BY created_at, rowid")
+      .all() as { ref: string; created_at: string; status: string }[];
+    const events = db.prepare("SELECT MAX(at) AS last FROM transfer_events").get() as {
+      last: string;
+    };
+
+    expect(rows.every((r) => r.created_at <= now.toISOString())).toBe(true);
+    expect(events.last <= now.toISOString()).toBe(true);
+    expect(rows.at(-1)).toMatchObject({ ref: "ACM-240120", status: "ON_HOLD" });
+    expect(rows.map((r) => r.ref)).toEqual([...rows.map((r) => r.ref)].sort());
+
+    const since = (d: Date) =>
+      (
+        db
+          .prepare(
+            "SELECT COALESCE(SUM(send_amount_minor), 0) AS n FROM transfers WHERE status NOT IN ('CANCELLED','RETURNED') AND created_at >= ?",
+          )
+          .get(d.toISOString()) as { n: number }
+      ).n;
+    const dubaiDayStart = new Date(
+      Math.floor((now.getTime() + 4 * 3_600_000) / 86_400_000) * 86_400_000 - 4 * 3_600_000,
+    );
+    expect(since(dubaiMonthStart(now))).toBe(1_650_000);
+    expect(since(dubaiDayStart)).toBe(expectedDailyUsed);
   });
 });

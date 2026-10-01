@@ -26,8 +26,8 @@
     "lint": "eslint . && prettier --check .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:migrate": "tsx src/db/cli.ts migrate",
+    "db:seed": "tsx src/db/cli.ts seed"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1143.0",
