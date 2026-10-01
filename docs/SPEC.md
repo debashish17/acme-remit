@@ -9,7 +9,7 @@ Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP ser
 | Decision | Choice | Why |
 | --- | --- | --- |
 | Framing | Single provider ("Acme Remit", name TBD), UAE–India corridor, AED to INR | Matches how every real Alexa+ add-on works; one board rate, one backend, no scraping |
-| Rates | Live mid-market from Frankfurter (ECB), cached 15 min, plus a simulated Acme FX margin; seeded fallback table. Customer sees "our rate" plus the guaranteed receive amount, Wise-style mid shown only in `compare_options` | Realistic pricing model, one dependency, demo never breaks |
+| Rates | Live mid-market from Frankfurter (ECB), cached 15 min; ECB publishes no AED, so AED/INR is USD/INR divided by the CBUAE peg of 3.6725 AED per USD, plus a simulated Acme FX margin; seeded fallback table. Customer sees "our rate" plus the guaranteed receive amount, Wise-style mid shown only in `compare_options` | Realistic pricing model, one dependency, demo never breaks |
 | Payout methods | Bank deposit via IMPS (instant), UPI ID (instant), cash pickup (MTSS caps). No economy/express tiers | What UAE exchange houses actually offer; cash pickup brings a real regulatory cap into the demo |
 | Competitor data | None live. `compare_options` shows the mid rate, Acme's rate, and a labelled illustrative typical-bank rate derived from the same mid | Honest, defensible, still reads well aloud |
 | Funding | Saved debit card, charged at confirm; funds received instantly in the mock | Voice cannot take card details; matches per-transfer funding norms |
@@ -130,7 +130,7 @@ out: { "transfer_ref": "ACM-240133", "status": "PAID_OUT", "recipient": "Mum", "
                      { "status": "SENT_TO_PARTNER", "at": "..." }, { "status": "PAID_OUT", "at": "..." } ] }
   or { "status": "ON_HOLD", "customer_label": "Under review",
        "action_required": { "type": "RFI", "document": "updated Emirates ID", "how": "upload in the Acme app", "deadline": "2026-10-05" } }
-  or { "status": "RETURNED", "reason": "recipient bank reported a name mismatch", "refund": { "amount": 492, "currency": "AED",
+  or { "status": "RETURNED", "reason": "recipient bank reported a name mismatch", "refund": { "amount": 475, "currency": "AED",
        "note": "refunded at the rate on the return date; fee not refunded", "eta": "2-7 working days" } }
 
 // 9 get_transfer_history
@@ -150,9 +150,9 @@ out: { "kyc_tier": "Verified (Emirates ID)", "next_tier": "Verified Plus: add sa
 // 9 cancel_transfer (preview, then execute)
 in:  { "transfer_ref": "ACM-240120" }
 out: { "cancel_token": "cx_41d7...", "expires_at": "...+5m", "status": "ON_HOLD", "cancellable": true,
-       "preview": "Cancel the 13,000 dirham transfer to your NRE account. 13,015 dirhams including the fee go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?" }
+       "preview": "Cancel the 13,000 dirham transfer to your NRE account. 13,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?" }
 in:  { "transfer_ref": "ACM-240120", "cancel_token": "cx_41d7..." }
-out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount": 13015, "currency": "AED", "to": "card ending 8812", "eta": "2-7 working days" },
+out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount": 13000, "currency": "AED", "to": "card ending 8812", "eta": "2-7 working days" },
        "limits_now": { "monthly": { "remaining": 14500 } } }
   or { "refused": { "code": "CANCEL_WINDOW_CLOSED", "status": "SENT_TO_PARTNER",
        "resolution": "This transfer has already been sent. A recall needs the recipient's consent; Acme support can request one from the app." } }
@@ -195,7 +195,8 @@ interface RatesService {
   getCustomerRate(from: string, to: string): Promise<{ rate: number; fxMarginPct: number }>;   // one board rate per corridor
   getWeekRange(from: string, to: string): Promise<{ high: number; low: number; changePct: number }>;
 }
-// Fetches https://api.frankfurter.app/latest?from=AED&to=INR, caches 15 min in SQLite rates_cache,
+// Fetches USD->INR from Frankfurter (https://api.frankfurter.dev/v1; it has no AED) and derives AED/INR = USD/INR / 3.6725 (peg),
+// caches 15 min in SQLite rates_cache,
 // falls back to the seeded 7-day table on any error. FX margin per corridor lives in config.
 
 interface BeneficiaryService {
@@ -223,14 +224,16 @@ interface LimitService {
 // Cash pickup: per transaction 9,180 AED (~USD 2,500), 30 per recipient per year, receive amount <= 50,000 INR.
 
 interface ConfirmationGate {
-  issue(quoteId: string, sessionId: string): { token: string; expiresAt: string };
-  consume(token: string, sessionId: string): { quoteId: string } | Refusal;    // single use, 5-min TTL, session-bound
-  // The same gate issues cancel tokens: issue({ kind: 'cancel', ref }, sessionId) -> cx_ token; consume checks kind matches.
+  issue(quoteId: string, callerId: string): { token: string; expiresAt: string };
+  consume(token: string, callerId: string): { quoteId: string } | Refusal;     // single use, 5-min TTL, caller-bound
+  // The same gate issues cancel tokens: issue({ kind: 'cancel', ref }, callerId) -> cx_ token; consume checks kind matches.
+  // callerId is the authenticated principal from the Bearer check (the OAuth subject + client in production):
+  // the transport is stateless, so there is no MCP session id to bind to.
 }
 
 interface LedgerService {
   confirm(userId: string, quoteId: string): Transfer | Refusal;   // re-checks limits, charges mock card, writes FUNDS_RECEIVED -> SCREENING
-  cancel(userId: string, ref: string): Transfer | Refusal;        // allowed in CREATED, FUNDS_RECEIVED, SCREENING, ON_HOLD; refunds send amount + fee; frees limits
+  cancel(userId: string, ref: string): Transfer | Refusal;        // allowed in CREATED, FUNDS_RECEIVED, SCREENING, ON_HOLD; refunds the amount charged (send amount, fee included); frees limits
   cancellable(ref: string): boolean;                               // false from SENT_TO_PARTNER onward
   track(userId: string, ref?: string): TransferView | undefined;  // includes utr, action_required (RFI) or refund details
   history(userId: string, filter: { months?: number; beneficiaryId?: string }): HistoryResult;
@@ -269,6 +272,18 @@ CREATE TABLE transfer_events(ref TEXT, status TEXT, at TEXT);          -- the ti
 CREATE TABLE alerts       (id TEXT PRIMARY KEY, user_id TEXT, pair TEXT, target REAL, direction TEXT, created_at TEXT, fired_at TEXT);
 ```
 
+The block above is migration 1 (`src/db/schema.sql`). Later changes are numbered files in `src/db/migrations/`, tracked in `PRAGMA user_version`:
+
+```sql
+-- 0002_cancel_token_target.sql
+-- Cancel tokens (cx_) record the transfer they cancel; confirmation tokens (ct_) keep using quote_id.
+-- The token kind is its prefix. session_id holds the caller binding key (stateless transport, no MCP session id).
+ALTER TABLE confirmations ADD COLUMN transfer_ref TEXT;
+CREATE INDEX confirmations_quote ON confirmations (quote_id);
+CREATE INDEX transfers_user_created ON transfers (user_id, created_at);
+CREATE INDEX transfer_events_ref ON transfer_events (ref, at);
+```
+
 **Seed**
 
 | Entity | Values |
@@ -278,12 +293,12 @@ CREATE TABLE alerts       (id TEXT PRIMARY KEY, user_id TEXT, pair TEXT, target 
 | `ben_02` | Rahul, Rahul Nair, brother, UPI `rahul.nair@okhdfc`, Pune, Maharashtra, name verified, purpose family\_maintenance, aliases `["rahul","brother","bhai"]` |
 | `ben_03` | Rahul (college), Rahul Menon, friend, bank deposit, ICICI Bank, acct \*\*\*\*3302, Kochi, Kerala, name verified, purpose gift, aliases `["rahul menon","college rahul"]` |
 | `ben_04` | My NRE account, Priya Nair, self, bank deposit, SBI, acct \*\*\*\*0917, NRE, Chandigarh, purpose savings\_own\_account, aliases `["my account","nre","savings","myself"]` |
-| Transfers, past | 7 months: 2,000 AED to Mum on the 2nd of each month, PAID\_OUT with UTRs. 1,500 AED to brother in Jul and Sep by UPI. 500 AED to friend in Aug: RETURNED (name mismatch), refund 492 AED, fee kept |
+| Transfers, past | 7 months: 2,000 AED to Mum on the 2nd of each month, PAID\_OUT with UTRs. 1,500 AED to brother in Jul and Sep by UPI. 500 AED to friend in Aug: RETURNED (name mismatch), refund 475 AED (485 converted, about 10 lost to the rate on the return date), fee kept |
 | Transfers, this month | Mum 2,000 (2nd, PAID\_OUT), brother 1,500 (5th, PAID\_OUT), NRE account 13,000 (10th, ON\_HOLD, RFI: updated Emirates ID). Monthly used 16,500 of 20,000, so one more 2,000 passes and the next 3,000 refuses on camera |
-| Rates history | 7 days each for AED/INR, USD/INR, GBP/INR, pulled once from Frankfurter when writing the seed script and hard-coded |
+| Rates history | 7 days each for AED/INR, USD/INR, GBP/INR, pulled once from Frankfurter when writing the seed script and hard-coded; AED/INR derived from USD/INR at the 3.6725 peg |
 | Limits config | Tier Verified: per transaction 5,000 AED, daily 10,000, monthly 20,000, new-recipient first transfer 2,000, source-of-funds threshold 15,000. Cash pickup 9,180 AED per transaction, 30 per recipient per year, 50,000 INR cash cap. Next tier Verified Plus (salary proof): monthly 60,000 |
 | FX margin | AED/INR 0.9%; USD/INR 0.8%; GBP/INR 1.0%; one board rate, no per-method rate difference |
-| Fees | bank deposit 15 AED, UPI 15 AED, cash pickup 20 AED; flat per transfer |
+| Fees | bank deposit 15 AED, UPI 15 AED, cash pickup 20 AED; flat per transfer, taken out of the send amount (the card is charged the send amount; receive = (send − fee) × rate) |
 | Purpose rules | business refused; property\_purchase needs documents; gift to non-relative warns about Indian gift tax; others pass |
 
 The two Rahuls exist on purpose: "send money to Rahul" triggers the disambiguation turn. The ON\_HOLD transfer to the NRE account gives the model a real RFI to explain, and the RETURNED one lets it explain a bounce, the FX loss on refund, and the kept fee.
@@ -325,9 +340,9 @@ A transfer needs three calls in order, and each step can only be used once; the 
 **Rules**
 
 1. `quote_transfer` writes a quote with status `open`, rate and fee locked for 30 min, and the guaranteed receive amount. A quote is priced once; `confirm` never re-fetches the rate.
-2. `prepare_transfer` requires an `open`, unexpired quote. It moves the quote to `prepared`, issues one random 32-byte token (base64url) bound to the quote and the MCP session id, expiry now + 5 min. Calling prepare again on the same quote invalidates the previous token.
-3. `confirm_transfer` requires a token that exists, is unused, unexpired, and matches the caller's session. It re-runs the limit check, then in one SQLite transaction: marks the token used, marks the quote `consumed`, records the mock card charge, inserts the transfer as `FUNDS_RECEIVED` and immediately `SCREENING`, and writes both timeline events.
-4. The ticker advances `SCREENING` → `SENT_TO_PARTNER` → `PAID_OUT` and generates a UTR on payout. `ON_HOLD`, `RETURNED` and `CANCELLED` are set as follows: CANCELLED only by cancel\_transfer, and only while the transfer is in CREATED, FUNDS\_RECEIVED, SCREENING or ON\_HOLD, refunding send amount plus fee to the card and releasing the amount from the monthly and daily counters; ON\_HOLD and RETURNED only by seed data or a dev control. No tool recalls.
+2. `prepare_transfer` requires an `open`, unexpired quote. It moves the quote to `prepared`, issues one random 32-byte token (base64url) bound to the quote and the authenticated caller (stateless transport, so no MCP session id), expiry now + 5 min. Calling prepare again on the same quote invalidates the previous token.
+3. `confirm_transfer` requires a token that exists, is unused, unexpired, and was issued to the same authenticated caller. It re-runs the limit check, then in one SQLite transaction: marks the token used, marks the quote `consumed`, records the mock card charge, inserts the transfer as `FUNDS_RECEIVED` and immediately `SCREENING`, and writes both timeline events.
+4. The ticker advances `SCREENING` → `SENT_TO_PARTNER` → `PAID_OUT` and generates a UTR on payout. `ON_HOLD`, `RETURNED` and `CANCELLED` are set as follows: CANCELLED only by cancel\_transfer, and only while the transfer is in CREATED, FUNDS\_RECEIVED, SCREENING or ON\_HOLD, refunding the amount charged (the send amount, which includes the fee) to the card and releasing the amount from the monthly and daily counters; ON\_HOLD and RETURNED only by seed data or a dev control. No tool recalls.
 5. Any rejected confirm is logged with the reason and the token prefix, never the full token.
 6. A transfer in `ON_HOLD` reports `customer_label: "Under review"` and the RFI if one exists; it never reports a screening reason.
 
@@ -335,11 +350,11 @@ A transfer needs three calls in order, and each step can only be used once; the 
 
 | File | Cases |
 | --- | --- |
-| `confirm.test.ts` | unknown token refused · expired token refused · reused token refused · token from another session refused · second prepare invalidates first token · happy path consumes exactly once |
+| `confirm.test.ts` | unknown token refused · expired token refused · reused token refused · token from another caller refused · second prepare invalidates first token · happy path consumes exactly once |
 | `limits.test.ts` | per-transaction cap · daily cap across two quotes · monthly cap at exactly the limit with reset date in the refusal · new-recipient first-transfer cap · source-of-funds threshold · cash pickup per-transaction, per-year count and 50,000 INR caps · NEAR\_MONTHLY\_LIMIT warning below 25% remaining · explanation text per code |
 | `quotes.test.ts` | locked rate equals rate at quote time even after cache refresh · fee by payout method · receive\_amount = (send\_amount − fee) × rate, rounded down to the paisa · expired quote cannot be prepared · business purpose refused · property purpose refused with document resolution · gift to non-relative warns |
 | `beneficiaries.test.ts` | "Mum", "mother", "amma" resolve to ben\_01 · "my account" resolves to ben\_04 · "Rahul" is ambiguous with two candidates · unknown name returns not\_found with the app hint · never creates a record |
-| `ledger.test.ts` | confirm charges the card exactly once under two concurrent confirms (second refused) · ticker advances SCREENING → SENT\_TO\_PARTNER → PAID\_OUT and sets a UTR · ON\_HOLD is not advanced by the ticker · cancel in SCREENING or ON\_HOLD refunds send amount + fee and lowers monthly used · cancel after SENT\_TO\_PARTNER refused CANCEL\_WINDOW\_CLOSED · cancel preview then execute consumes one cx\_ token, reuse refused · track returns RFI for ON\_HOLD and refund details for RETURNED · history totals and limits\_used match seeded rows |
+| `ledger.test.ts` | confirm charges the card exactly once under two concurrent confirms (second refused) · ticker advances SCREENING → SENT\_TO\_PARTNER → PAID\_OUT and sets a UTR · ON\_HOLD is not advanced by the ticker · cancel in SCREENING or ON\_HOLD refunds the amount charged (fee included) and lowers monthly used · cancel after SENT\_TO\_PARTNER refused CANCEL\_WINDOW\_CLOSED · cancel preview then execute consumes one cx\_ token, reuse refused · track returns RFI for ON\_HOLD and refund details for RETURNED · history totals and limits\_used match seeded rows |
 | `rates.test.ts` | live fetch populates cache · second call within 15 min does not hit the network (mocked fetch) · network failure falls back to seeded history with source=fallback |
 | `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 12 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
 
@@ -463,7 +478,7 @@ Everything Devpost asks for, mapped to where it lives in the repo, plus the vide
 | 1:28–1:42 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal JSON in the panel: the server enforced it, not the model |
 | 1:42–1:55 | "Send 500 to Rahul." → "Which Rahul, your brother or Rahul Menon?" | Candidates from `resolve_beneficiary` |
 | 1:55–2:10 | "Where's Mum's money?" → paid out, UTR read aloud. "And the one to my NRE account?" → under review, upload updated Emirates ID in the app | Ticker reached PAID\_OUT; RFI shown, no reason given |
-| 2:10–2:24 | "Cancel the one to my NRE account." → preview: 13,015 dirhams back to the card → "Yes." → cancelled, 14,500 of monthly limit now free | `cancel_transfer` twice in the panel; ledger strip updates |
+| 2:10–2:24 | "Cancel the one to my NRE account." → preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of monthly limit now free | `cancel_transfer` twice in the panel; ledger strip updates |
 | 2:24–2:30 | "Tell me when the dirham hits 23.5." → alert set, fired via dev control | Push-style toast |
 | 2:30–2:40 | Repo tour: tool list, token and limit tests passing, CI green, App Runner URL, Bedrock call in `/sim/chat` | Editor and terminal |
 | 2:40–2:45 | "The ledger module is the only thing between this and a licensed exchange house's backend." | README real-vs-simulated table |

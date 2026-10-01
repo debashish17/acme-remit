@@ -18,7 +18,7 @@ with it, stop and ask rather than improvise.
    core and the DB. Format at the edge only. Never use floats for amounts.
 3. **State writers.** Only `confirm_transfer` and `cancel_transfer` move money,
    and only through `ConfirmationGate` tokens (single-use, 5-min TTL,
-   session-bound). `set_rate_alert` is the only other writer. Nothing else
+   bound to the authenticated caller). `set_rate_alert` is the only other writer. Nothing else
    mutates balances, transfers or limits.
 4. **Refusals.** Every refusal is structured:
    `{ refused: { code, ...numbers, resolution } }`. Never a bare string error,

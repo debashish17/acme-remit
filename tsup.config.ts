@@ -1,3 +1,4 @@
+import { cpSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 export default defineConfig({
@@ -9,4 +10,9 @@ export default defineConfig({
   outDir: "dist",
   sourcemap: true,
   clean: true,
+  // migrate.ts reads its SQL relative to itself; in the bundle that is dist/, so copy it there.
+  onSuccess: async () => {
+    cpSync("src/db/schema.sql", "dist/schema.sql");
+    cpSync("src/db/migrations", "dist/migrations", { recursive: true });
+  },
 });

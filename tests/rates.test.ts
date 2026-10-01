@@ -1,0 +1,135 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { describeTrend, deriveAedInr, RatesService } from "../src/core/rates.js";
+import type { Db } from "../src/db/connection.js";
+import {
+  failingFetch,
+  frankfurterSeries,
+  liveFetch,
+  seededDb,
+  silentLogger,
+  testClock,
+} from "./helpers.js";
+
+let db: Db;
+afterEach(() => db?.close());
+
+function service(fetchFn: typeof fetch, clock = testClock()) {
+  db = seededDb();
+  return new RatesService({
+    db,
+    baseUrl: "https://rates.test/v1/",
+    fetch: fetchFn,
+    now: clock,
+    logger: silentLogger,
+  });
+}
+
+describe("RatesService", () => {
+  it("live fetch populates the cache and derives AED/INR from USD/INR at the peg", async () => {
+    const fetchFn = liveFetch();
+    const rates = service(fetchFn);
+    const mid = await rates.getMid("AED", "INR");
+    expect(mid).toEqual({ rate: 26.2301, asOf: "2026-10-15T08:00:00.000Z", source: "live" });
+
+    const [url] = fetchFn.mock.calls[0] as unknown as [string];
+    expect(url).toBe("https://rates.test/v1/2026-10-01..?from=USD&to=INR,GBP");
+
+    const cache = db.prepare("SELECT pair, mid, source FROM rates_cache ORDER BY pair").all();
+    expect(cache).toEqual([
+      { pair: "AED/INR", mid: 26.2301, source: "live" },
+      { pair: "GBP/INR", mid: 127.4797, source: "live" },
+      { pair: "USD/INR", mid: 96.33, source: "live" },
+    ]);
+    const history = db
+      .prepare("SELECT mid FROM rates_history WHERE pair = 'AED/INR' AND day = '2026-10-14'")
+      .get();
+    expect(history).toEqual({ mid: 26.2301 });
+  });
+
+  it("a second call within 15 minutes does not hit the network", async () => {
+    const fetchFn = liveFetch();
+    const clock = testClock();
+    const rates = service(fetchFn, clock);
+    await rates.getMid("AED", "INR");
+    clock.advance(14 * 60_000);
+    await rates.getMid("AED", "INR");
+    await rates.getCustomerRate("AED", "INR");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("network failure falls back to seeded history with source=fallback", async () => {
+    const rates = service(failingFetch());
+    const mid = await rates.getMid("AED", "INR");
+    // newest seeded day: USD/INR 96.33 on 2026-10-01
+    expect(mid).toEqual({ rate: 26.2301, asOf: "2026-10-01T00:00:00.000Z", source: "fallback" });
+    expect(silentLogger.warnings.at(-1)).toMatch(/rates: fetch failed/);
+  });
+
+  it("falls back on a non-200 and on a malformed body", async () => {
+    const bad = vi.fn(async () => new Response("nope", { status: 404 }));
+    expect((await service(bad).getMid("AED", "INR")).source).toBe("fallback");
+    const malformed = vi.fn(async () => new Response(JSON.stringify({ base: "USD", rates: 1 })));
+    expect((await service(malformed).getMid("AED", "INR")).source).toBe("fallback");
+  });
+
+  it("after a failure, waits a minute before trying the network again", async () => {
+    const fetchFn = failingFetch();
+    const clock = testClock();
+    const rates = service(fetchFn, clock);
+    await rates.getMid("AED", "INR");
+    clock.advance(30_000);
+    await rates.getMid("AED", "INR");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    clock.advance(31_000);
+    await rates.getMid("AED", "INR");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves a stale cache immediately and refreshes in the background", async () => {
+    const fetchFn = liveFetch();
+    const clock = testClock();
+    const rates = service(fetchFn, clock);
+    await rates.getMid("AED", "INR");
+    clock.advance(20 * 60_000);
+    fetchFn.mockImplementationOnce(async () =>
+      frankfurterSeries({ "2026-10-15": { INR: 97.0, GBP: 0.76 } }),
+    );
+    const stale = await rates.getMid("AED", "INR");
+    expect(stale.rate).toBe(26.2301);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    await rates.refresh(); // joins the in-flight request
+    expect((await rates.getMid("AED", "INR")).rate).toBe(deriveAedInr(97.0));
+  });
+
+  it("shares one request between concurrent cold-start callers", async () => {
+    const fetchFn = liveFetch();
+    const rates = service(fetchFn);
+    await Promise.all([rates.getMid("AED", "INR"), rates.getMid("AED", "INR")]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("customer rate is mid less the 0.9% AED/INR margin, floored to 4 dp", async () => {
+    const rates = service(liveFetch());
+    expect(await rates.getCustomerRate("AED", "INR")).toEqual({ rate: 25.994, fxMarginPct: 0.9 });
+  });
+
+  it("week range and trend come from the newest 7 history days", async () => {
+    const rates = service(failingFetch());
+    const week = await rates.getWeekRange("AED", "INR");
+    // seeded USD/INR 95.74 (23 Sep) -> 96.33 (1 Oct): AED/INR 26.0694 -> 26.2301
+    expect(week).toEqual({ high: 26.2301, low: 26.0694, changePct: 0.6 });
+    const snap = await rates.snapshot("AED", "INR");
+    expect(snap.trend).toBe("rupee weakened 0.6% this week");
+    expect(snap.source).toBe("ECB reference history, offline fallback");
+  });
+
+  it("describes the trend from the sender's side", () => {
+    expect(describeTrend(0.6)).toBe("rupee weakened 0.6% this week");
+    expect(describeTrend(-0.4)).toBe("rupee strengthened 0.4% this week");
+    expect(describeTrend(0.04)).toBe("rupee steady this week");
+  });
+
+  it("rejects unsupported pairs", async () => {
+    await expect(service(liveFetch()).getMid("EUR", "INR")).rejects.toThrow(/Unsupported pair/);
+  });
+});

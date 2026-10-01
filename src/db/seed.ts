@@ -1,15 +1,22 @@
-import { pathToFileURL } from "node:url";
-import { openDb, type Db } from "./connection.js";
-import { migrate } from "./migrate.js";
+import { applyMargin, receiveMinor } from "../core/money.js";
+import { DEMO_USER_ID, FX_MARGIN_BP, PAYOUT_POLICY } from "../core/policy.js";
+import { deriveAedInr } from "../core/rates.js";
+import { startOfDubaiDay } from "../core/time.js";
+import type { PayoutMethod } from "../core/types.js";
+import { makeUtr } from "../core/utr.js";
+import type { Db } from "./connection.js";
 
 /**
  * Demo seed from docs/SPEC.md "Data model and seed data". Wipes every table and reloads,
- * so each demo take starts identical. Dates are anchored to the month of `now` (UTC):
+ * so each demo take starts identical. Dates are anchored to the Dubai calendar month of `now`:
  * "this month" in the spec is the current month, "Jul/Aug/Sep" are the three months before it.
+ * This month's transfers keep their SPEC days (2nd, 5th, 10th) when those are in the past;
+ * otherwise they move to the latest earlier day this month, in order, so nothing is ever
+ * future-dated and today's daily limit starts unused. (Seeded on the 1st, they land earlier today.)
  * All amounts are integer minor units (fils, paise).
  */
 
-export const USER_ID = "usr_priya";
+export const USER_ID = DEMO_USER_ID;
 
 const TABLES = [
   "users",
@@ -22,9 +29,6 @@ const TABLES = [
   "transfer_events",
   "alerts",
 ] as const;
-
-const FEE_MINOR = { bank_deposit: 1500, upi: 1500, cash_pickup: 2000 } as const;
-type PayoutMethod = keyof typeof FEE_MINOR;
 
 interface SeedBeneficiary {
   id: string;
@@ -110,24 +114,39 @@ const BENEFICIARIES: SeedBeneficiary[] = [
   },
 ];
 
-// PLACEHOLDER mid rates, last 7 days ending on the seed day. To be replaced with values pulled
-// once from Frankfurter in Phase 2 (see SPEC.md "Rates history"). Shape matches the get_rate
-// example: high 23.55, low 23.10, latest 23.42, +0.6% over the week.
-const AED_INR_7D = [23.28, 23.1, 23.19, 23.35, 23.55, 23.47, 23.42];
-const AED_PER_USD = 3.6725; // AED is pegged to USD
-const USD_PER_GBP = 1.345; // placeholder cross
+// Real ECB reference rates, pulled once from Frankfurter on 2026-10-02 and hard-coded (SPEC "Rates
+// history"). ECB has no AED: AED/INR is derived from USD/INR at the 3.6725 peg, as RatesService does.
+// Live fetches add newer days on top; RatesService reads the newest 7.
+const ECB_USD_7D: { day: string; inr: number; gbp: number }[] = [
+  { day: "2026-09-23", inr: 95.74, gbp: 0.75322 },
+  { day: "2026-09-24", inr: 95.96, gbp: 0.75645 },
+  { day: "2026-09-25", inr: 95.82, gbp: 0.75458 },
+  { day: "2026-09-28", inr: 95.98, gbp: 0.75396 },
+  { day: "2026-09-29", inr: 95.98, gbp: 0.75489 },
+  { day: "2026-09-30", inr: 95.83, gbp: 0.75265 },
+  { day: "2026-10-01", inr: 96.33, gbp: 0.75565 },
+];
 
-// PLACEHOLDER customer (board) rates for past transfers, keyed by month offset from now.
-const BOARD_RATE_BY_MONTH: Record<number, number> = {
-  [-7]: 22.95,
-  [-6]: 23.02,
-  [-5]: 22.88,
-  [-4]: 23.1,
-  [-3]: 23.05,
-  [-2]: 23.12,
-  [-1]: 23.18,
-  [0]: 23.21,
+// USD/INR from ECB on the first business day on or after the 2nd, March to October 2026, keyed by
+// month offset from the seed month. Past transfers are priced at that month's board rate.
+const ECB_USD_INR_BY_MONTH: Record<number, number> = {
+  [-7]: 91.74,
+  [-6]: 93.1,
+  [-5]: 95.09,
+  [-4]: 95.27,
+  [-3]: 95.39,
+  [-2]: 95.34,
+  [-1]: 94.97,
+  [0]: 96.33,
 };
+
+function boardRate(monthOffset: number): number | undefined {
+  const usdInr = ECB_USD_INR_BY_MONTH[monthOffset];
+  const marginBp = FX_MARGIN_BP["AED/INR"];
+  return usdInr === undefined || marginBp === undefined
+    ? undefined
+    : applyMargin(deriveAedInr(usdInr), marginBp);
+}
 
 type SeedStatus = "PAID_OUT" | "RETURNED" | "ON_HOLD";
 
@@ -192,32 +211,23 @@ function ben02(monthOffset: number): SeedTransfer {
 
 const FIRST_REF = 240108;
 const RETURN_REASON = "recipient bank reported a name mismatch";
-const RETURNED_REFUND_MINOR = 49200; // 492 AED: refunded at the return-date rate, fee kept
+// 485 AED converted at the August board rate (25.7268) -> 12,477.49 INR; returned and bought back at
+// the 17 Aug rate plus margin (26.2683) -> 475.00 AED: a 10 AED FX loss, and the 15 AED fee is kept.
+const RETURNED_REFUND_MINOR = 47500;
 
-/** (send - fee) x rate, floored to the paisa, using integer maths on a 4-dp rate. */
-function receiveMinor(sendMinor: number, feeMinor: number, rate: number): number {
-  const rate4 = Math.round(rate * 10_000);
-  return Math.floor(((sendMinor - feeMinor) * rate4) / 10_000);
-}
+const DUBAI_OFFSET_MS = 4 * 3_600_000;
+const dubai = (now: Date) => new Date(now.getTime() + DUBAI_OFFSET_MS);
 
+/** 09:00 UTC (13:00 in Dubai) on `day` of the Dubai month `monthOffset` months from now. */
 function at(now: Date, monthOffset: number, day: number, minutes = 0): Date {
+  const d = dubai(now);
   return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, day, 9, 0) + minutes * 60_000,
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + monthOffset, day, 9, 0) + minutes * 60_000,
   );
 }
 
 const iso = (d: Date) => d.toISOString();
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
-
-function utrFor(b: SeedBeneficiary, paidOut: Date, seq: number): string {
-  const digits = String(seq).padStart(8, "0");
-  // UPI references are a 12-digit RRN; bank (IMPS) UTRs carry a bank prefix and the date.
-  if (b.payout_method === "upi")
-    return `${ymd(paidOut).slice(2).replaceAll("-", "")}${String(seq).slice(-6)}`;
-  const prefix =
-    b.bank_name === "HDFC Bank" ? "HDFCR5" : b.bank_name === "SBI" ? "SBINR5" : "ICICR5";
-  return `${prefix}${ymd(paidOut).replaceAll("-", "")}${digits}`;
-}
 
 export interface SeedSummary {
   users: number;
@@ -247,15 +257,11 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
 
     const insRate = db.prepare("INSERT INTO rates_history (pair, day, mid) VALUES (?, ?, ?)");
     const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
-    AED_INR_7D.forEach((aed, i) => {
-      const day = ymd(
-        new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6 + i)),
-      );
-      const usd = round4(aed * AED_PER_USD);
-      insRate.run("AED/INR", day, aed);
-      insRate.run("USD/INR", day, usd);
-      insRate.run("GBP/INR", day, round4(usd * USD_PER_GBP));
-    });
+    for (const { day, inr, gbp } of ECB_USD_7D) {
+      insRate.run("AED/INR", day, deriveAedInr(inr));
+      insRate.run("USD/INR", day, round4(inr));
+      insRate.run("GBP/INR", day, round4(inr / gbp));
+    }
 
     const insTransfer = db.prepare(`INSERT INTO transfers
       (ref, user_id, beneficiary_id, quote_id, send_amount_minor, send_currency, receive_amount_minor,
@@ -267,30 +273,41 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
     const insEvent = db.prepare("INSERT INTO transfer_events (ref, status, at) VALUES (?, ?, ?)");
 
     let events = 0;
+    const today = dubai(now).getUTCDate();
+    let thisMonthIndex = 0;
     TRANSFERS.forEach((t, i) => {
+      // Never future-date: this month's transfers move before today if their SPEC day has not come.
+      const clamp = t.monthOffset === 0 && t.day >= today;
+      const day = clamp ? Math.max(1, today - 1) : t.day;
+      const base = t.monthOffset === 0 ? thisMonthIndex++ * 10 : 0;
+      // On the 1st there is no earlier day this month: start at Dubai midnight, steps in seconds.
+      const firstOfMonth = clamp && today === 1;
+      const start = firstOfMonth
+        ? new Date(startOfDubaiDay(now).getTime() + base * 1000)
+        : at(now, t.monthOffset, day, clamp ? base : 0);
+      const unit = firstOfMonth ? 1000 : 60_000;
+      const when = (dayDelta = 0, minutes = 0) =>
+        new Date(start.getTime() + dayDelta * 86_400_000 + minutes * unit);
       const ben = BENEFICIARIES.find((b) => b.id === t.beneficiaryId);
-      const rate = BOARD_RATE_BY_MONTH[t.monthOffset];
+      const rate = boardRate(t.monthOffset);
       if (!ben || rate === undefined) throw new Error(`Bad seed row ${i}`);
       const ref = `ACM-${FIRST_REF + i}`;
-      const feeMinor = FEE_MINOR[ben.payout_method];
+      const feeMinor = PAYOUT_POLICY[ben.payout_method].feeMinor;
       const sendMinor = t.sendAed * 100;
-      const created = at(now, t.monthOffset, t.day);
+      const created = when();
 
       const timeline: [string, Date][] = [
         ["FUNDS_RECEIVED", created],
-        ["SCREENING", at(now, t.monthOffset, t.day, 1)],
+        ["SCREENING", when(0, 1)],
       ];
       let paidOut: Date | null = null;
       if (t.status === "PAID_OUT") {
-        paidOut = at(now, t.monthOffset, t.day, 3);
-        timeline.push(["SENT_TO_PARTNER", at(now, t.monthOffset, t.day, 2)], ["PAID_OUT", paidOut]);
+        paidOut = when(0, 3);
+        timeline.push(["SENT_TO_PARTNER", when(0, 2)], ["PAID_OUT", paidOut]);
       } else if (t.status === "RETURNED") {
-        timeline.push(
-          ["SENT_TO_PARTNER", at(now, t.monthOffset, t.day, 2)],
-          ["RETURNED", at(now, t.monthOffset, t.day + 2)],
-        );
+        timeline.push(["SENT_TO_PARTNER", when(0, 2)], ["RETURNED", when(2)]);
       } else {
-        timeline.push(["ON_HOLD", at(now, t.monthOffset, t.day, 2)]);
+        timeline.push(["ON_HOLD", when(0, 2)]);
       }
 
       // Customer-facing RFI only; a screening reason is never stored or emitted (CLAUDE.md rule 5).
@@ -300,7 +317,7 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
               type: "RFI",
               document: "updated Emirates ID",
               how: "upload in the Acme app",
-              deadline: ymd(at(now, t.monthOffset, t.day + 7)),
+              deadline: ymd(when(7)),
             })
           : null;
 
@@ -315,7 +332,14 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
         payout_method: ben.payout_method,
         purpose: t.purpose,
         status: t.status,
-        utr: paidOut ? utrFor(ben, paidOut, FIRST_REF + i) : null,
+        utr: paidOut
+          ? makeUtr(
+              ben.payout_method,
+              ben.bank_name,
+              paidOut,
+              String(FIRST_REF + i).padStart(8, "0"),
+            )
+          : null,
         created_at: iso(created),
         paid_out_at: paidOut ? iso(paidOut) : null,
         eta: "within minutes",
@@ -332,22 +356,10 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
     return {
       users: 1,
       beneficiaries: BENEFICIARIES.length,
-      ratesHistory: AED_INR_7D.length * 3,
+      ratesHistory: ECB_USD_7D.length * 3,
       transfers: TRANSFERS.length,
       transferEvents: events,
     };
   });
   return run();
-}
-
-const isCli =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isCli) {
-  const { loadConfig } = await import("../config.js");
-  const { DB_PATH } = loadConfig();
-  const db = openDb(DB_PATH);
-  migrate(db);
-  const summary = seed(db);
-  db.close();
-  console.log(`Seeded ${DB_PATH}:`, summary);
 }

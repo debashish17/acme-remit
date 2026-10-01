@@ -1,6 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-import { openDb, type Db } from "./connection.js";
+import type { Db } from "./connection.js";
 
 interface Migration {
   version: number;
@@ -49,17 +48,4 @@ export function migrate(db: Db): string[] {
     applied.push(m.name);
   }
   return applied;
-}
-
-const isCli =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isCli) {
-  const { loadConfig } = await import("../config.js");
-  const { DB_PATH } = loadConfig();
-  const db = openDb(DB_PATH);
-  const applied = migrate(db);
-  db.close();
-  console.log(
-    applied.length ? `Applied ${applied.join(", ")} to ${DB_PATH}` : `${DB_PATH} is up to date`,
-  );
 }

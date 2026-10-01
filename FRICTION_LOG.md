@@ -72,3 +72,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** Omit `sessionIdGenerator` entirely (the runtime only checks for `undefined`), and cast `transport as Transport` at `connect()` with a comment.
 - **Suggestion:** Declare optional options and `Transport` callbacks as `prop?: T | undefined` so the SDK compiles under `exactOptionalPropertyTypes`, and add that flag to the SDK's own type tests.
+
+### 2026-10-02 · Frankfurter API · No AED quotes; `.app` host now redirects to `.dev/v1`
+
+- **Task:** Confirm the rates endpoint in SPEC.md (`https://api.frankfurter.app/latest?from=AED&to=INR`) before building `RatesService` in Phase 2.
+- **Steps:** `curl -L` the SPEC URL, the same for `from=USD`, and `/currencies`.
+- **Expected:** An AED→INR mid-market rate.
+- **Actual:** `from=AED` returns HTTP 404 `{"message":"not found"}`. AED is not in `/currencies` (the ECB reference set has no dirham), so the SPEC fetch could never succeed and would always fall back to the seeded table. Every request to `api.frankfurter.app` also gets a redirect to `https://api.frankfurter.dev/v1/...`; the first call took 0.83 s against 0.17 s without the extra hop. Live USD→INR on 2026-10-01 was 96.33, so AED→INR ≈ 26.23, far from the 23.42 used in the SPEC examples and the placeholder seed.
+- **Severity:** major (the design's only live dependency did not cover the corridor)
+- **Workaround:** Pending a decision; candidate is USD→INR from Frankfurter divided by the CBUAE peg of 3.6725 AED/USD, with `RATES_URL` pointed straight at `https://api.frankfurter.dev/v1`.
+- **Suggestion:** Return a 400 naming the unsupported currency and listing `/currencies` instead of a bare "not found", and document the `.app` → `.dev/v1` move on the landing page.
