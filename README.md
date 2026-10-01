@@ -24,7 +24,20 @@ Three safety properties hold for every money movement:
 
 ## Status
 
-Phase 1 — protocol skeleton. Streamable HTTP on `POST /mcp` (stateless, Bearer auth), `GET /health`, SQLite schema with migrate and seed scripts, and one tool, `get_rate`, returning a fixed example rate. The other eleven tools arrive in Phase 2. See the phase plan in `docs/SPEC.md`.
+Phase 2 — core and all 12 tools. The full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals. Next: Phase 3, deployment to AWS App Runner and the Alexa+ simulator. See the phase plan in `docs/SPEC.md`.
+
+| Tool | Does | Moves money |
+| --- | --- | --- |
+| `get_rate` | Acme's AED→INR rate, mid-market rate, 7-day trend | |
+| `compare_options` | Receive amount by bank deposit, UPI and cash pickup, against a typical bank | |
+| `list_beneficiaries` / `resolve_beneficiary` | Saved recipients; find one by name, nickname or relationship | |
+| `quote_transfer` | Fee, locked rate, guaranteed receive amount, limit and purpose checks; held 30 min | |
+| `prepare_transfer` | The exact read-back sentence and a single-use 5-minute token | |
+| `confirm_transfer` | Charges the card and submits, once, with that token | **yes** |
+| `track_transfer` / `get_transfer_history` | Status, timeline, UTR, RFI when under review; history with totals | |
+| `cancel_transfer` | Preview with a cancel token, then cancel and refund before payout | **yes** |
+| `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
+| `set_rate_alert` | Tell the user when the rate reaches a target | |
 
 ## Run
 
@@ -36,7 +49,7 @@ pnpm dev
 # MCP endpoint: POST http://127.0.0.1:3000/mcp  (Bearer token from .env)
 ```
 
-`pnpm test`, `pnpm lint` and `pnpm typecheck` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical.
+`pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
 
 ### Check the protocol with curl
 
@@ -50,6 +63,19 @@ curl -s http://127.0.0.1:3000/mcp \
 ```
 
 Expected: `"protocolVersion":"2025-11-25"` and `"serverInfo":{"name":"acme-remit",...}`. Without the `Authorization` header the server answers `401`. Legacy `GET /sse` is not served.
+
+### Try the send flow with MCP Inspector
+
+Run these from outside the repo folder (`npx` refuses to run inside a pnpm project; see `FRICTION_LOG.md`). Each call is a separate connection; tokens are bound to the authenticated caller, not a session.
+
+```bash
+I="npx -y @modelcontextprotocol/inspector@latest --cli http://127.0.0.1:3000/mcp --transport http --header 'Authorization: Bearer $MCP_BEARER_TOKEN'"
+eval $I --method tools/list
+eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=2000 --tool-arg beneficiary_id=ben_01
+eval $I --method tools/call --tool-name prepare_transfer --tool-arg quote_id=<quote_id>
+eval $I --method tools/call --tool-name confirm_transfer --tool-arg confirmation_token=<confirmation_token>
+eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=3000 --tool-arg beneficiary_id=ben_01   # refused: MONTHLY_LIMIT
+```
 
 ## Real vs simulated
 
