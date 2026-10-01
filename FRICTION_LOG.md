@@ -42,3 +42,33 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** Pinned `typescript@~6.0.3`. Also pinned `@types/node@^22` to match the Node 22 LTS runtime (latest was 26).
 - **Suggestion:** Show peer-range mismatches in the `pnpm add` summary by default.
+
+### 2026-10-02 · npm `npx` / `devEngines` · `npx` refuses to run local binaries in a pnpm project
+
+- **Task:** Type-check a probe file with the project's local `tsc` during Phase 1 setup.
+- **Steps:** `npx tsc --noEmit ...` in a repo whose `package.json` has `devEngines.packageManager: { name: "pnpm", onFail: "download" }`.
+- **Expected:** `npx` runs `node_modules/.bin/tsc`, maybe with a warning that the project prefers pnpm.
+- **Actual:** `npm error code EBADDEVENGINES ... Invalid name "pnpm" does not match "npm" for "packageManager"` and exit 1. `onFail: "download"` does not apply to npx; nothing runs.
+- **Severity:** minor
+- **Workaround:** Use `pnpm exec <bin>` for every local binary.
+- **Suggestion:** npm should not enforce `devEngines.packageManager` for `npx`/`npm exec` of an already-installed local binary, or should honour `onFail` by warning instead of failing.
+
+### 2026-10-02 · pnpm 12 · `pnpm -s <script>` no longer accepted
+
+- **Task:** Run `db:migrate` and `db:seed` quietly while verifying the Phase 1 seed.
+- **Steps:** `pnpm -s db:migrate`.
+- **Expected:** Runs the script with the script banner suppressed, as in pnpm 8–10 (`-s` = `--silent`).
+- **Actual:** `error: unexpected argument '-s' found` and exit 2. `pnpm run --help` lists only `--loglevel silent`.
+- **Severity:** minor
+- **Workaround:** `pnpm db:migrate` (banner shown), or `pnpm --loglevel silent run <script>`.
+- **Suggestion:** Keep `-s` as an alias, or name the replacement in the error message; this breaks copy-pasted scripts and CI snippets from older docs.
+
+### 2026-10-02 · MCP TypeScript SDK 1.31.0 · Stateless Streamable HTTP example does not compile under `exactOptionalPropertyTypes`
+
+- **Task:** Serve `POST /mcp` with `StreamableHTTPServerTransport` in stateless mode (Phase 1).
+- **Steps:** Followed the JSDoc/README pattern `new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })` then `server.connect(transport)`, in a TypeScript strict project with `exactOptionalPropertyTypes: true`.
+- **Expected:** The documented stateless idiom type-checks; the SDK's own transport is assignable to the SDK's own `Transport` interface.
+- **Actual:** `TS2379 ... Types of property 'sessionIdGenerator' are incompatible. Type 'undefined' is not assignable to type '() => string'`, and on `connect`: `Types of property 'onclose' are incompatible. Type '(() => void) | undefined' is not assignable to type '() => void'`.
+- **Severity:** minor
+- **Workaround:** Omit `sessionIdGenerator` entirely (the runtime only checks for `undefined`), and cast `transport as Transport` at `connect()` with a comment.
+- **Suggestion:** Declare optional options and `Transport` callbacks as `prop?: T | undefined` so the SDK compiles under `exactOptionalPropertyTypes`, and add that flag to the SDK's own type tests.

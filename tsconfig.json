@@ -22,6 +22,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
 
+    "outDir": "dist",
     "noEmit": true
   },
   "include": ["src", "tests", "*.config.ts"]

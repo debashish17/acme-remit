@@ -1,5 +1,7 @@
 # Acme Remit for Alexa+
 
+[![CI](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml/badge.svg)](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml)
+
 > **Simulated ledger — no real funds move.** Mid-market exchange rates are live (ECB via Frankfurter, cached); Acme pricing, limits, card funding, screening and payout are simulated.
 
 A self-hosted [MCP](https://modelcontextprotocol.io) server (spec 2025-11-25, Streamable HTTP) that lets Alexa+ handle UAE→India remittances safely, plus a web simulator that stands in for Alexa+.
@@ -22,9 +24,9 @@ Three safety properties hold for every money movement:
 
 ## Status
 
-Phase 0 — setup. See the phase plan in `docs/SPEC.md`.
+Phase 1 — protocol skeleton. Streamable HTTP on `POST /mcp` (stateless, Bearer auth), `GET /health`, SQLite schema with migrate and seed scripts, and one tool, `get_rate`, returning a fixed example rate. The other eleven tools arrive in Phase 2. See the phase plan in `docs/SPEC.md`.
 
-## Run (from Phase 1)
+## Run
 
 ```bash
 pnpm install
@@ -33,6 +35,21 @@ pnpm db:migrate && pnpm db:seed
 pnpm dev
 # MCP endpoint: POST http://127.0.0.1:3000/mcp  (Bearer token from .env)
 ```
+
+`pnpm test`, `pnpm lint` and `pnpm typecheck` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical.
+
+### Check the protocol with curl
+
+```bash
+export MCP_BEARER_TOKEN=change-me-to-a-long-random-string   # the value in your .env
+curl -s http://127.0.0.1:3000/mcp \
+  -H "Authorization: Bearer $MCP_BEARER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+Expected: `"protocolVersion":"2025-11-25"` and `"serverInfo":{"name":"acme-remit",...}`. Without the `Authorization` header the server answers `401`. Legacy `GET /sse` is not served.
 
 ## Real vs simulated
 
