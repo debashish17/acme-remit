@@ -52,3 +52,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** Use `pnpm exec <bin>` for every local binary.
 - **Suggestion:** npm should not enforce `devEngines.packageManager` for `npx`/`npm exec` of an already-installed local binary, or should honour `onFail` by warning instead of failing.
+
+### 2026-10-02 · pnpm 12 · `pnpm -s <script>` no longer accepted
+
+- **Task:** Run `db:migrate` and `db:seed` quietly while verifying the Phase 1 seed.
+- **Steps:** `pnpm -s db:migrate`.
+- **Expected:** Runs the script with the script banner suppressed, as in pnpm 8–10 (`-s` = `--silent`).
+- **Actual:** `error: unexpected argument '-s' found` and exit 2. `pnpm run --help` lists only `--loglevel silent`.
+- **Severity:** minor
+- **Workaround:** `pnpm db:migrate` (banner shown), or `pnpm --loglevel silent run <script>`.
+- **Suggestion:** Keep `-s` as an alias, or name the replacement in the error message; this breaks copy-pasted scripts and CI snippets from older docs.
