@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { RequestHandler } from "express";
+import { registerGetRate } from "./tools/get-rate.js";
 
 export const SERVER_NAME = "acme-remit";
 export const SERVER_VERSION = "1.0.0"; // keep in step with package.json
@@ -11,6 +12,7 @@ export function createMcpServer(): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
   );
+  registerGetRate(server);
   return server;
 }
 
