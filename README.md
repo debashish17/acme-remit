@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml/badge.svg)](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml)
 
-> **Simulated ledger — no real funds move.** Mid-market exchange rates are live (ECB via Frankfurter, cached); Acme pricing, limits, card funding, screening and payout are simulated.
+> **Simulated ledger — no real funds move.** Mid-market exchange rates are live (ECB via Frankfurter, cached; AED/INR derived from USD/INR at the 3.6725 AED/USD peg); Acme pricing, limits, card funding, screening and payout are simulated.
 
 A self-hosted [MCP](https://modelcontextprotocol.io) server (spec 2025-11-25, Streamable HTTP) that lets Alexa+ handle UAE→India remittances safely, plus a web simulator that stands in for Alexa+.
 
@@ -15,7 +15,7 @@ One remittance provider's own Alexa+ add-on. A customer in Dubai can ask for tod
 Three safety properties hold for every money movement:
 
 1. **Read-back before action.** `prepare_transfer` returns the exact sentence to read back; nothing moves until the user agrees.
-2. **Single-use, expiring tokens.** `confirm_transfer` and `cancel_transfer` only execute with a 5-minute, session-bound, single-use token.
+2. **Single-use, expiring tokens.** `confirm_transfer` and `cancel_transfer` only execute with a 5-minute, single-use token bound to the authenticated caller.
 3. **Server-side limits.** KYC-tier, daily, monthly and cash-pickup caps are enforced in core, not by the model.
 
 ## Spec
