@@ -463,8 +463,8 @@ export class LedgerService {
    * Dev control (SPEC: "ON_HOLD stays until a dev control releases it"): an ON_HOLD transfer goes
    * back to SCREENING, so the ticker carries it on to PAID_OUT. Not reachable from any tool.
    */
-  releaseHold(userId: string, ref: string): { ref: string; status: TransferStatus } | undefined {
-    const t = this.find(userId, ref);
+  releaseHold(userId: string, ref?: string): { ref: string; status: TransferStatus } | undefined {
+    const t = ref ? this.find(userId, ref) : this.oldestOnHold(userId);
     if (!t || t.status !== "ON_HOLD") return undefined;
     const at = this.now().toISOString();
     this.db.transaction(() => {
@@ -510,6 +510,16 @@ export class LedgerService {
          JOIN beneficiaries b ON b.id = t.beneficiary_id WHERE t.ref = ? AND t.user_id = ?`,
       )
       .get(ref.trim().toUpperCase(), userId) as TransferRow | undefined;
+  }
+
+  private oldestOnHold(userId: string): TransferRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT t.*, b.nickname, b.relationship FROM transfers t
+         JOIN beneficiaries b ON b.id = t.beneficiary_id
+         WHERE t.user_id = ? AND t.status = 'ON_HOLD' ORDER BY t.created_at, t.rowid LIMIT 1`,
+      )
+      .get(userId) as TransferRow | undefined;
   }
 
   private latest(userId: string): TransferRow | undefined {
