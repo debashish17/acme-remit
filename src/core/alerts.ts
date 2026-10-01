@@ -25,6 +25,8 @@ export interface Alert {
 export interface FiredAlert extends Alert {
   rate: number;
   notification: string;
+  /** True when a dev control fired it while recording, not a real rate move. */
+  simulated?: boolean;
 }
 
 const CHANNEL = "push and email";
@@ -120,6 +122,35 @@ export class AlertService {
       });
     }
     return fired;
+  }
+
+  /** Dev control: fire the oldest pending alert now, as if its target had been reached. */
+  fireNext(userId: string): FiredAlert | undefined {
+    const a = this.db
+      .prepare(
+        "SELECT * FROM alerts WHERE user_id = ? AND fired_at IS NULL ORDER BY created_at, id LIMIT 1",
+      )
+      .get(userId) as AlertRow | undefined;
+    if (!a) return undefined;
+    const at = this.now().toISOString();
+    this.db
+      .prepare("UPDATE alerts SET fired_at = ? WHERE id = ? AND fired_at IS NULL")
+      .run(at, a.id);
+    return {
+      ...toAlert({ ...a, fired_at: at }),
+      rate: a.target,
+      notification: `A dirham now buys ${sayRate(a.target)} rupees, your target.`,
+      simulated: true,
+    };
+  }
+
+  /** Alerts fired after `since` (ISO), oldest first: the simulator's toast feed. */
+  firedSince(userId: string, since: string): Alert[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM alerts WHERE user_id = ? AND fired_at > ? ORDER BY fired_at, id")
+        .all(userId, since) as AlertRow[]
+    ).map(toAlert);
   }
 
   private insert(userId: string, pair: string, target: number, direction: AlertDirection) {

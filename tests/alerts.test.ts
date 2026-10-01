@@ -112,3 +112,23 @@ describe("AlertService.evaluate", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 });
+
+describe("AlertService dev controls", () => {
+  it("fireNext fires the oldest pending alert, flagged simulated, and the feed reports it", async () => {
+    await core.alerts.set(USER_ID, "AED/INR", 26.5, "above");
+    await core.alerts.set(USER_ID, "AED/INR", 27, "above");
+    const before = clock().toISOString();
+    clock.advance(1000);
+
+    const fired = core.alerts.fireNext(USER_ID);
+    expect(fired).toMatchObject({
+      alert_id: "al_01",
+      simulated: true,
+      notification: "A dirham now buys 26.50 rupees, your target.",
+    });
+    expect(core.alerts.firedSince(USER_ID, before).map((a) => a.alert_id)).toEqual(["al_01"]);
+    expect(core.alerts.firedSince(USER_ID, clock().toISOString())).toEqual([]);
+    expect(core.alerts.fireNext(USER_ID)?.alert_id).toBe("al_02");
+    expect(core.alerts.fireNext(USER_ID)).toBeUndefined();
+  });
+});

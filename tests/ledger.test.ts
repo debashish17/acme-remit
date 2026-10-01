@@ -397,3 +397,34 @@ describe("LedgerService.history", () => {
     expect(core.ledger.history(USER_ID, { months: 1 }).totals.count).toBe(3);
   });
 });
+
+describe("LedgerService dev controls", () => {
+  it("releaseHold moves ON_HOLD back to SCREENING and the ticker carries it to PAID_OUT", () => {
+    expect(core.ledger.releaseHold(USER_ID, "ACM-240120")).toEqual({
+      ref: "ACM-240120",
+      status: "SCREENING",
+    });
+    clock.advance(STEP);
+    core.ledger.tick();
+    clock.advance(STEP);
+    core.ledger.tick();
+    const t = ok(core.ledger.track(USER_ID, "ACM-240120"));
+    expect(t.status).toBe("PAID_OUT");
+    expect(t.utr).toMatch(/^SBINR5\d{16}$/);
+  });
+
+  it("releaseHold ignores transfers that are not on hold or not the user's", () => {
+    expect(core.ledger.releaseHold(USER_ID, "ACM-240119")).toBeUndefined();
+    expect(core.ledger.releaseHold("usr_other", "ACM-240120")).toBeUndefined();
+  });
+
+  it("tick({ force: true }) advances one step without waiting", async () => {
+    const { transfer_ref: ref } = ok(
+      core.ledger.confirm(USER_ID, (await prepared("ben_01", 500)).token, CALLER),
+    );
+    expect(core.ledger.tick()).toEqual([]);
+    expect(core.ledger.tick({ force: true })).toEqual([{ ref, status: "SENT_TO_PARTNER" }]);
+    expect(core.ledger.tick({ force: true })).toEqual([{ ref, status: "PAID_OUT" }]);
+    expect(core.ledger.tick({ force: true })).toEqual([]);
+  });
+});
