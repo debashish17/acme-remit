@@ -1,10 +1,20 @@
 import { randomBytes } from "node:crypto";
 import type { Db } from "../db/connection.js";
+import type { ConfirmationGate } from "./confirm.js";
 import type { LimitService } from "./limits.js";
-import { applyMargin, maxSendForReceive, receiveMinor, sayAed, sayInr } from "./money.js";
+import {
+  aedNumber,
+  applyMargin,
+  maxSendForReceive,
+  receiveMinor,
+  sayAed,
+  sayInr,
+  sayRate,
+} from "./money.js";
 import {
   BENCHMARK,
   PAYOUT_POLICY,
+  PURPOSE_WORDS,
   QUOTE_LOCK_MINUTES,
   RELATIVES,
   VERIFIED_TIER,
@@ -12,7 +22,7 @@ import {
 } from "./policy.js";
 import type { RatesService } from "./rates.js";
 import { isRefusal, refuse } from "./refusal.js";
-import { getRecipient, getUser } from "./repo.js";
+import { destinationPhrase, getRecipient, getUser, recipientPhrase } from "./repo.js";
 import { addMinutes } from "./time.js";
 import {
   PAYOUT_METHODS,
@@ -108,6 +118,7 @@ export interface QuoteDeps {
   db: Db;
   rates: RatesService;
   limits: LimitService;
+  gate: ConfirmationGate;
   now?: Clock;
   tier?: TierConfig;
   newId?: () => string;
@@ -120,6 +131,7 @@ export class QuoteService {
   private readonly db: Db;
   private readonly rates: RatesService;
   private readonly limits: LimitService;
+  private readonly gate: ConfirmationGate;
   private readonly now: Clock;
   private readonly tier: TierConfig;
   private readonly newId: () => string;
@@ -128,6 +140,7 @@ export class QuoteService {
     this.db = deps.db;
     this.rates = deps.rates;
     this.limits = deps.limits;
+    this.gate = deps.gate;
     this.now = deps.now ?? (() => new Date());
     this.tier = deps.tier ?? VERIFIED_TIER;
     this.newId = deps.newId ?? (() => `q_${randomBytes(4).toString("hex")}`);
@@ -273,6 +286,50 @@ export class QuoteService {
     };
   }
 
+  /**
+   * SPEC token rule 2: an open (or already prepared) unexpired quote becomes prepared and gets a
+   * single-use ct_ token, valid 5 minutes and never past the rate lock. Preparing again replaces
+   * the previous token. Returns the exact sentence the assistant must read back.
+   */
+  prepare(userId: string, quoteId: string, callerId: string): Prepared | Refusal {
+    const quote = this.get(userId, quoteId);
+    if (!quote) {
+      return refuse("QUOTE_UNKNOWN", "That quote was not found. Ask for a new quote.", {
+        quote_id: quoteId,
+      });
+    }
+    if (quote.status === "expired") {
+      return refuse(
+        "QUOTE_EXPIRED",
+        `Rates are held for ${QUOTE_LOCK_MINUTES} minutes and this quote has expired. Ask for a new quote at today's rate.`,
+        { quote_id: quoteId, rate_locked_until: quote.rateLockedUntil },
+      );
+    }
+    if (quote.status === "consumed") {
+      return refuse(
+        "QUOTE_ALREADY_USED",
+        "That quote has already been used for a transfer. Ask for a new quote to send again.",
+        { quote_id: quoteId },
+      );
+    }
+    const recipient = getRecipient(this.db, userId, quote.beneficiaryId);
+    if (!recipient) throw new Error(`Quote ${quoteId} has no recipient`);
+
+    const issued = this.db.transaction(() => {
+      this.db.prepare("UPDATE quotes SET status = 'prepared' WHERE id = ?").run(quoteId);
+      return this.gate.issue({ kind: "transfer", quoteId }, callerId, {
+        notAfter: new Date(quote.rateLockedUntil),
+      });
+    })();
+
+    return {
+      quote_id: quoteId,
+      confirmation_token: issued.token,
+      expires_at: issued.expiresAt,
+      read_back: readBack(quote, recipient, getUser(this.db, userId).cardLast4),
+    };
+  }
+
   get(userId: string, quoteId: string): QuoteRecord | undefined {
     const row = this.db
       .prepare("SELECT * FROM quotes WHERE id = ? AND user_id = ?")
@@ -307,6 +364,33 @@ export class QuoteService {
     });
   }
 }
+
+export interface Prepared {
+  quote_id: string;
+  confirmation_token: string;
+  expires_at: string;
+  read_back: string;
+}
+
+/**
+ * The consent sentence. Names the recipient and destination, purpose, fee (taken out of the send
+ * amount), rate, the card charged and the guaranteed receive amount, then asks.
+ */
+export function readBack(q: QuoteRecord, r: Recipient, cardLast4: string): string {
+  const who = r.relationship === "self" ? recipientPhrase(r) : `${r.nickname}, ${r.fullName}`;
+  const where = destinationPhrase(r, q.payoutMethod);
+  const link = q.payoutMethod === "cash_pickup" ? " for " : " at ";
+  const subject = r.relationship === "self" ? capitalise(recipientPhrase(r)) : r.nickname;
+  const eta = PAYOUT_POLICY[q.payoutMethod].eta.split(",")[0];
+  return [
+    `Send ${sayAed(q.sendMinor)} to ${who}${link}${where}, for ${PURPOSE_WORDS[q.purpose]}.`,
+    `The ${aedNumber(q.feeMinor)} dirham fee is included and the rate is ${sayRate(q.lockedRate)}; your card ending ${cardLast4} is charged ${sayAed(q.sendMinor)}.`,
+    `${subject} receives ${sayInr(q.receiveMinor)}, guaranteed, ${eta}.`,
+    "Shall I go ahead?",
+  ].join(" ");
+}
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 interface QuoteRow {
   id: string;

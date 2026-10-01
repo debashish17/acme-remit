@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ConfirmationGate } from "../src/core/confirm.js";
 import { LimitService } from "../src/core/limits.js";
-import { QuoteService, type Quote } from "../src/core/quotes.js";
+import { QuoteService, type Prepared, type Quote } from "../src/core/quotes.js";
 import { RatesService } from "../src/core/rates.js";
 import { isRefusal } from "../src/core/refusal.js";
 import type { Refusal } from "../src/core/types.js";
@@ -30,6 +31,7 @@ beforeEach(() => {
     db,
     rates,
     limits: new LimitService(db, clock),
+    gate: new ConfirmationGate({ db, now: clock, logger: silentLogger }),
     now: clock,
     newId: () => `q_test${++n}`,
   });
@@ -246,5 +248,90 @@ describe("QuoteService.compare", () => {
 
   it("refuses an amount that does not cover the fee", async () => {
     expect(await quotes.compare(aed(10))).toMatchObject({ refused: { code: "AMOUNT_TOO_SMALL" } });
+  });
+});
+
+describe("QuoteService.prepare", () => {
+  const CALLER = "usr_priya:test-caller";
+
+  async function quote(beneficiaryId: string, sendAed: number, extra: object = {}) {
+    return ok(await quotes.create(USER_ID, { beneficiaryId, sendMinor: aed(sendAed), ...extra }));
+  }
+
+  function prepared(r: Prepared | Refusal): Prepared {
+    if (isRefusal(r)) throw new Error(`unexpected refusal ${r.refused.code}`);
+    return r;
+  }
+
+  it("returns the exact read-back and a ct_ token valid for 5 minutes; the quote is prepared", async () => {
+    const q = await quote("ben_01", 2000);
+    const p = prepared(quotes.prepare(USER_ID, q.quote_id, CALLER));
+    expect(p.read_back).toBe(
+      "Send 2,000 dirhams to Mum, Sunita Nair at HDFC Bank ending 4421, for family maintenance. " +
+        "The 15 dirham fee is included and the rate is 25.99; your card ending 8812 is charged 2,000 dirhams. " +
+        "Mum receives 51,598 rupees, guaranteed, within minutes. Shall I go ahead?",
+    );
+    expect(p.confirmation_token).toMatch(/^ct_[A-Za-z0-9_-]{43}$/);
+    expect(p.expires_at).toBe("2026-10-15T08:05:00.000Z");
+    expect(quotes.get(USER_ID, q.quote_id)?.status).toBe("prepared");
+  });
+
+  it("reads back UPI, cash pickup and own-account transfers in their own words", async () => {
+    const upi = prepared(quotes.prepare(USER_ID, (await quote("ben_02", 500)).quote_id, CALLER));
+    expect(upi.read_back).toMatch(
+      /^Send 500 dirhams to Rahul, Rahul Nair at UPI ID rahul\.nair@okhdfc, for family maintenance\./,
+    );
+    const cash = prepared(
+      quotes.prepare(
+        USER_ID,
+        (await quote("ben_01", 500, { payoutMethod: "cash_pickup" })).quote_id,
+        CALLER,
+      ),
+    );
+    expect(cash.read_back).toMatch(/to Mum, Sunita Nair for cash pickup in Chandigarh,/);
+    expect(cash.read_back).toMatch(/The 20 dirham fee is included/);
+    expect(cash.read_back).toMatch(/guaranteed, within 2 hours\./);
+    const self = prepared(quotes.prepare(USER_ID, (await quote("ben_04", 500)).quote_id, CALLER));
+    expect(self.read_back).toMatch(
+      /^Send 500 dirhams to your NRE account at SBI ending 0917, for savings to your own account\./,
+    );
+    expect(self.read_back).toMatch(/ Your NRE account receives /);
+  });
+
+  it("an expired quote cannot be prepared", async () => {
+    const q = await quote("ben_01", 2000);
+    clock.advance(30 * 60_000);
+    expect(quotes.prepare(USER_ID, q.quote_id, CALLER)).toMatchObject({
+      refused: { code: "QUOTE_EXPIRED", rate_locked_until: "2026-10-15T08:30:00.000Z" },
+    });
+  });
+
+  it("a token never outlives the rate lock", async () => {
+    const q = await quote("ben_01", 2000);
+    clock.advance(27 * 60_000);
+    expect(prepared(quotes.prepare(USER_ID, q.quote_id, CALLER)).expires_at).toBe(
+      "2026-10-15T08:30:00.000Z",
+    );
+  });
+
+  it("refuses unknown, someone else's, and already-used quotes", async () => {
+    expect(quotes.prepare(USER_ID, "q_nope", CALLER)).toMatchObject({
+      refused: { code: "QUOTE_UNKNOWN" },
+    });
+    const q = await quote("ben_01", 2000);
+    expect(quotes.prepare("usr_other", q.quote_id, CALLER)).toMatchObject({
+      refused: { code: "QUOTE_UNKNOWN" },
+    });
+    db.prepare("UPDATE quotes SET status = 'consumed' WHERE id = ?").run(q.quote_id);
+    expect(quotes.prepare(USER_ID, q.quote_id, CALLER)).toMatchObject({
+      refused: { code: "QUOTE_ALREADY_USED" },
+    });
+  });
+
+  it("preparing again is allowed and issues a different token", async () => {
+    const q = await quote("ben_01", 2000);
+    const first = prepared(quotes.prepare(USER_ID, q.quote_id, CALLER));
+    const second = prepared(quotes.prepare(USER_ID, q.quote_id, CALLER));
+    expect(second.confirmation_token).not.toBe(first.confirmation_token);
   });
 });
