@@ -62,3 +62,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** `pnpm db:migrate` (banner shown), or `pnpm --loglevel silent run <script>`.
 - **Suggestion:** Keep `-s` as an alias, or name the replacement in the error message; this breaks copy-pasted scripts and CI snippets from older docs.
+
+### 2026-10-02 · MCP TypeScript SDK 1.31.0 · Stateless Streamable HTTP example does not compile under `exactOptionalPropertyTypes`
+
+- **Task:** Serve `POST /mcp` with `StreamableHTTPServerTransport` in stateless mode (Phase 1).
+- **Steps:** Followed the JSDoc/README pattern `new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })` then `server.connect(transport)`, in a TypeScript strict project with `exactOptionalPropertyTypes: true`.
+- **Expected:** The documented stateless idiom type-checks; the SDK's own transport is assignable to the SDK's own `Transport` interface.
+- **Actual:** `TS2379 ... Types of property 'sessionIdGenerator' are incompatible. Type 'undefined' is not assignable to type '() => string'`, and on `connect`: `Types of property 'onclose' are incompatible. Type '(() => void) | undefined' is not assignable to type '() => void'`.
+- **Severity:** minor
+- **Workaround:** Omit `sessionIdGenerator` entirely (the runtime only checks for `undefined`), and cast `transport as Transport` at `connect()` with a comment.
+- **Suggestion:** Declare optional options and `Transport` callbacks as `prop?: T | undefined` so the SDK compiles under `exactOptionalPropertyTypes`, and add that flag to the SDK's own type tests.
