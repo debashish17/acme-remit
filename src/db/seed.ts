@@ -3,6 +3,7 @@ import { applyMargin, receiveMinor } from "../core/money.js";
 import { FX_MARGIN_BP, PAYOUT_POLICY } from "../core/policy.js";
 import { deriveAedInr } from "../core/rates.js";
 import type { PayoutMethod } from "../core/types.js";
+import { makeUtr } from "../core/utr.js";
 import { openDb, type Db } from "./connection.js";
 import { migrate } from "./migrate.js";
 
@@ -221,16 +222,6 @@ function at(now: Date, monthOffset: number, day: number, minutes = 0): Date {
 const iso = (d: Date) => d.toISOString();
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-function utrFor(b: SeedBeneficiary, paidOut: Date, seq: number): string {
-  const digits = String(seq).padStart(8, "0");
-  // UPI references are a 12-digit RRN; bank (IMPS) UTRs carry a bank prefix and the date.
-  if (b.payout_method === "upi")
-    return `${ymd(paidOut).slice(2).replaceAll("-", "")}${String(seq).slice(-6)}`;
-  const prefix =
-    b.bank_name === "HDFC Bank" ? "HDFCR5" : b.bank_name === "SBI" ? "SBINR5" : "ICICR5";
-  return `${prefix}${ymd(paidOut).replaceAll("-", "")}${digits}`;
-}
-
 export interface SeedSummary {
   users: number;
   beneficiaries: number;
@@ -323,7 +314,14 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
         payout_method: ben.payout_method,
         purpose: t.purpose,
         status: t.status,
-        utr: paidOut ? utrFor(ben, paidOut, FIRST_REF + i) : null,
+        utr: paidOut
+          ? makeUtr(
+              ben.payout_method,
+              ben.bank_name,
+              paidOut,
+              String(FIRST_REF + i).padStart(8, "0"),
+            )
+          : null,
         created_at: iso(created),
         paid_out_at: paidOut ? iso(paidOut) : null,
         eta: "within minutes",
