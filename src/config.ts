@@ -8,7 +8,7 @@ const ConfigSchema = z.object({
     .min(16, "must be at least 16 characters (use a long random string)"),
   BEDROCK_MODEL_ID: z.string().min(1).default("amazon.nova-2-lite-v1:0"),
   AWS_REGION: z.string().min(1).default("us-east-1"),
-  RATES_URL: z.url().default("https://api.frankfurter.app"),
+  RATES_URL: z.url().default("https://api.frankfurter.dev/v1"),
   DB_PATH: z.string().min(1).default("./data/acme-remit.db"),
   TICKER_MS: z.coerce.number().int().min(100).default(15000),
 });

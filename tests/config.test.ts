@@ -11,7 +11,7 @@ describe("parseConfig", () => {
       MCP_BEARER_TOKEN: TOKEN,
       BEDROCK_MODEL_ID: "amazon.nova-2-lite-v1:0",
       AWS_REGION: "us-east-1",
-      RATES_URL: "https://api.frankfurter.app",
+      RATES_URL: "https://api.frankfurter.dev/v1",
       DB_PATH: "./data/acme-remit.db",
       TICKER_MS: 15000,
     });

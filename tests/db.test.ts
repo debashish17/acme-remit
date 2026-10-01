@@ -68,8 +68,9 @@ describe("seed", () => {
       )
       .get() as { receive_amount_minor: number; fee_minor: number; rate: number };
     expect(row.fee_minor).toBe(1500);
-    expect(row.rate).toBe(23.21);
-    expect(row.receive_amount_minor).toBe(4_607_185);
+    // October board rate: USD/INR 96.33 / 3.6725 = 26.2301 mid, less 0.9% = 25.9940
+    expect(row.rate).toBe(25.994);
+    expect(row.receive_amount_minor).toBe(5_159_809); // 1,985 x 25.9940
     expect(Number.isInteger(row.receive_amount_minor)).toBe(true);
   });
 
