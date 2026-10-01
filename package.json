@@ -21,12 +21,13 @@
     "dev": "tsx watch src/server/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint .",
+    "lint": "eslint . && prettier --check .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1143.0",

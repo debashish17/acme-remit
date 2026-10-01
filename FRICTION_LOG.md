@@ -42,3 +42,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** Pinned `typescript@~6.0.3`. Also pinned `@types/node@^22` to match the Node 22 LTS runtime (latest was 26).
 - **Suggestion:** Show peer-range mismatches in the `pnpm add` summary by default.
+
+### 2026-10-02 · npm `npx` / `devEngines` · `npx` refuses to run local binaries in a pnpm project
+
+- **Task:** Type-check a probe file with the project's local `tsc` during Phase 1 setup.
+- **Steps:** `npx tsc --noEmit ...` in a repo whose `package.json` has `devEngines.packageManager: { name: "pnpm", onFail: "download" }`.
+- **Expected:** `npx` runs `node_modules/.bin/tsc`, maybe with a warning that the project prefers pnpm.
+- **Actual:** `npm error code EBADDEVENGINES ... Invalid name "pnpm" does not match "npm" for "packageManager"` and exit 1. `onFail: "download"` does not apply to npx; nothing runs.
+- **Severity:** minor
+- **Workaround:** Use `pnpm exec <bin>` for every local binary.
+- **Suggestion:** npm should not enforce `devEngines.packageManager` for `npx`/`npm exec` of an already-installed local binary, or should honour `onFail` by warning instead of failing.
