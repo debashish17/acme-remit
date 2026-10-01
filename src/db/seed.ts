@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { applyMargin, receiveMinor } from "../core/money.js";
-import { FX_MARGIN_BP, PAYOUT_POLICY } from "../core/policy.js";
+import { DEMO_USER_ID, FX_MARGIN_BP, PAYOUT_POLICY } from "../core/policy.js";
 import { deriveAedInr } from "../core/rates.js";
 import type { PayoutMethod } from "../core/types.js";
 import { makeUtr } from "../core/utr.js";
@@ -14,7 +14,7 @@ import { migrate } from "./migrate.js";
  * All amounts are integer minor units (fils, paise).
  */
 
-export const USER_ID = "usr_priya";
+export const USER_ID = DEMO_USER_ID;
 
 const TABLES = [
   "users",

@@ -1,12 +1,14 @@
 import express, { type Express } from "express";
 import { bearerAuth } from "./auth.js";
-import { handleMcpPost, methodNotAllowed } from "./mcp.js";
+import type { Core } from "../core/index.js";
+import { mcpPostHandler, methodNotAllowed } from "./mcp.js";
 
 export interface AppOptions {
   bearerToken: string;
+  core: Core;
 }
 
-export function createApp({ bearerToken }: AppOptions): Express {
+export function createApp({ bearerToken, core }: AppOptions): Express {
   const app = express();
   app.disable("x-powered-by");
 
@@ -16,7 +18,7 @@ export function createApp({ bearerToken }: AppOptions): Express {
 
   // Streamable HTTP on POST /mcp only. Legacy GET /sse is intentionally not served (CLAUDE.md rule 7).
   app.use("/mcp", bearerAuth(bearerToken));
-  app.post("/mcp", express.json({ limit: "1mb" }), handleMcpPost);
+  app.post("/mcp", express.json({ limit: "1mb" }), mcpPostHandler(core));
   app.all("/mcp", methodNotAllowed);
 
   app.use((_req, res) => {

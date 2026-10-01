@@ -55,3 +55,28 @@ export function failingFetch() {
     throw new TypeError("fetch failed");
   });
 }
+
+export const TEST_BEARER = "protocol-test-token-0123456789";
+export const PROTOCOL = "2025-11-25";
+
+/** The full app over a seeded in-memory DB, mocked rates and a movable clock. */
+export async function testApp() {
+  const [{ createCore }, { createApp }, { MockCard }] = await Promise.all([
+    import("../src/core/index.js"),
+    import("../src/server/app.js"),
+    import("../src/core/ledger.js"),
+  ]);
+  const clock = testClock();
+  const card = new MockCard();
+  const core = createCore({
+    db: seededDb(),
+    ratesUrl: "https://rates.test/v1",
+    fetch: liveFetch(),
+    now: clock,
+    logger: silentLogger,
+    card,
+    stepMs: 15_000,
+  });
+  const app = createApp({ bearerToken: TEST_BEARER, core });
+  return { app, core, clock, card };
+}

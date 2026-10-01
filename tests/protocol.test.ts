@@ -1,11 +1,31 @@
 import { readFileSync } from "node:fs";
+import type { Express } from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
-import { createApp } from "../src/server/app.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Core } from "../src/core/index.js";
+import { PROTOCOL, TEST_BEARER, testApp } from "./helpers.js";
 
-const TOKEN = "protocol-test-token-0123456789";
-const PROTOCOL = "2025-11-25";
-const app = createApp({ bearerToken: TOKEN });
+let app: Express;
+let core: Core;
+beforeAll(async () => {
+  ({ app, core } = await testApp());
+});
+afterAll(() => core.db.close());
+
+const TOOLS = [
+  "get_rate",
+  "compare_options",
+  "list_beneficiaries",
+  "resolve_beneficiary",
+  "quote_transfer",
+  "prepare_transfer",
+  "confirm_transfer",
+  "track_transfer",
+  "cancel_transfer",
+  "get_transfer_history",
+  "check_limits",
+  "set_rate_alert",
+];
 
 /** The `description` column for a tool in the docs/SPEC.md tool contract table. */
 function specDescription(tool: string): string {
@@ -16,14 +36,17 @@ function specDescription(tool: string): string {
   return cell.replaceAll("\\_", "_");
 }
 
-function rpc(method: string, params?: unknown, id = 1) {
-  return request(app)
+function rpc(method: string, params?: unknown, target: Express = app) {
+  return request(target)
     .post("/mcp")
-    .set("Authorization", `Bearer ${TOKEN}`)
+    .set("Authorization", `Bearer ${TEST_BEARER}`)
     .set("Accept", "application/json, text/event-stream")
     .set("MCP-Protocol-Version", PROTOCOL)
-    .send({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
+    .send({ jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) });
 }
+
+const call = (name: string, args: Record<string, unknown> = {}, target?: Express) =>
+  rpc("tools/call", { name, arguments: args }, target);
 
 const initParams = (protocolVersion: string) => ({
   protocolVersion,
@@ -31,11 +54,19 @@ const initParams = (protocolVersion: string) => ({
   clientInfo: { name: "protocol-test", version: "0.0.0" },
 });
 
+function keysDeep(v: unknown): string[] {
+  if (Array.isArray(v)) return v.flatMap(keysDeep);
+  if (v && typeof v === "object") {
+    return Object.entries(v).flatMap(([k, x]) => [k, ...keysDeep(x)]);
+  }
+  return [];
+}
+
 describe("initialize", () => {
   it(`negotiates ${PROTOCOL}`, async () => {
     const res = await request(app)
       .post("/mcp")
-      .set("Authorization", `Bearer ${TOKEN}`)
+      .set("Authorization", `Bearer ${TEST_BEARER}`)
       .set("Accept", "application/json, text/event-stream")
       .send({ jsonrpc: "2.0", id: 1, method: "initialize", params: initParams(PROTOCOL) });
     expect(res.status).toBe(200);
@@ -56,60 +87,136 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("returns get_rate with the SPEC description and JSON schemas", async () => {
+  it("returns the 12 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
     const res = await rpc("tools/list");
     expect(res.status).toBe(200);
     const tools = res.body.result.tools as Record<string, unknown>[];
-    expect(tools.map((t) => t.name)).toEqual(["get_rate"]);
-    const [tool] = tools;
-    expect(tool?.description).toBe(specDescription("get_rate"));
-    expect(tool?.inputSchema).toMatchObject({
-      type: "object",
-      properties: {
-        from: { type: "string", const: "AED", default: "AED" },
-        to: { type: "string", const: "INR", default: "INR" },
-      },
+    expect(tools.map((t) => t.name)).toEqual(TOOLS);
+    for (const tool of tools) {
+      const name = tool.name as string;
+      expect(tool.description, name).toBe(specDescription(name));
+      expect(tool.inputSchema, name).toMatchObject({ type: "object" });
+      expect(tool.annotations, name).toMatchObject({ openWorldHint: false });
+    }
+  });
+
+  it("marks only confirm_transfer and cancel_transfer as destructive", async () => {
+    const tools = (await rpc("tools/list")).body.result.tools as {
+      name: string;
+      annotations: { destructiveHint?: boolean; readOnlyHint?: boolean };
+    }[];
+    expect(tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name)).toEqual([
+      "confirm_transfer",
+      "cancel_transfer",
+    ]);
+    expect(tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name)).toEqual([
+      "get_rate",
+      "compare_options",
+      "list_beneficiaries",
+      "resolve_beneficiary",
+      "track_transfer",
+      "get_transfer_history",
+      "check_limits",
+    ]);
+  });
+
+  it("describes inputs a model can fill: quote_transfer", async () => {
+    const tools = (await rpc("tools/list")).body.result.tools as {
+      name: string;
+      inputSchema: { properties: Record<string, unknown>; required?: string[] };
+    }[];
+    const quote = tools.find((t) => t.name === "quote_transfer");
+    expect(Object.keys(quote?.inputSchema.properties ?? {})).toEqual([
+      "send_amount",
+      "send_currency",
+      "beneficiary_id",
+      "payout_method",
+      "purpose",
+    ]);
+    expect(quote?.inputSchema.required).toEqual(["send_amount", "beneficiary_id"]);
+    expect(quote?.inputSchema.properties.payout_method).toMatchObject({
+      enum: ["bank_deposit", "upi", "cash_pickup"],
     });
-    expect(tool?.outputSchema).toMatchObject({ type: "object" });
-    expect(tool?.annotations).toMatchObject({ readOnlyHint: true });
   });
 });
 
 describe("tools/call", () => {
-  const expected = {
-    corridor: "AE-IN",
-    pair: "AED/INR",
-    customer_rate: 23.21,
-    mid_rate: 23.42,
-    fx_margin_pct: 0.9,
-    week_high: 23.55,
-    week_low: 23.1,
-    trend: "rupee weakened 0.6% this week",
-    as_of: "2026-10-01T09:15:00Z",
-    source: "ECB via Frankfurter, cached",
-  };
-
-  it("get_rate returns structured content and a matching text block", async () => {
-    const res = await rpc("tools/call", {
-      name: "get_rate",
-      arguments: { from: "AED", to: "INR" },
-    });
+  it.each<[string, Record<string, unknown>]>([
+    ["get_rate", {}],
+    ["compare_options", { send_amount: 2000 }],
+    ["list_beneficiaries", {}],
+    ["resolve_beneficiary", { query: "Mum" }],
+    ["quote_transfer", { send_amount: 500, beneficiary_id: "ben_02" }],
+    ["prepare_transfer", { quote_id: "q_unknown" }],
+    ["confirm_transfer", { confirmation_token: "ct_unknown" }],
+    ["track_transfer", { transfer_ref: "ACM-240120" }],
+    ["cancel_transfer", { transfer_ref: "ACM-240119" }],
+    ["get_transfer_history", { months: 3 }],
+    ["check_limits", {}],
+    ["set_rate_alert", { target: 26.5, direction: "above" }],
+  ])("%s returns structured content in major units", async (name, args) => {
+    const res = await call(name, args);
     expect(res.status).toBe(200);
     const result = res.body.result;
-    expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual(expected);
-    expect(JSON.parse(result.content[0].text)).toEqual(expected);
+    expect(result.isError, JSON.stringify(result)).toBeFalsy();
+    expect(result.structuredContent).toBeTypeOf("object");
+    expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
+    expect(keysDeep(result.structuredContent).filter((k) => k.endsWith("_minor"))).toEqual([]);
   });
 
-  it("get_rate defaults from/to when omitted", async () => {
-    const res = await rpc("tools/call", { name: "get_rate", arguments: {} });
-    expect(res.body.result.structuredContent).toEqual(expected);
+  it("get_rate returns the live snapshot, derived at the peg", async () => {
+    const res = await call("get_rate", { from: "AED", to: "INR" });
+    expect(res.body.result.structuredContent).toMatchObject({
+      corridor: "AE-IN",
+      pair: "AED/INR",
+      customer_rate: 25.994,
+      mid_rate: 26.2301,
+      fx_margin_pct: 0.9,
+      source: "ECB via Frankfurter (USD/INR, AED at the 3.6725 peg), cached",
+    });
   });
 
-  it("rejects an unsupported currency as a tool error, not a transport failure", async () => {
-    const res = await rpc("tools/call", { name: "get_rate", arguments: { from: "USD" } });
+  it("converts amounts at the edge: send 2,000 dirhams, receive 51,598.09 rupees", async () => {
+    const res = await call("compare_options", { send_amount: 2000, send_currency: "AED" });
+    const bank = res.body.result.structuredContent.payout_methods[0];
+    expect(bank).toMatchObject({
+      method: "bank_deposit",
+      fee: 15,
+      receive_amount: 51598.09,
+      available: true,
+    });
+  });
+
+  it("refusals are structured results, not errors", async () => {
+    const res = await call("cancel_transfer", { transfer_ref: "ACM-240119" });
+    expect(res.body.result.isError).toBeFalsy();
+    expect(res.body.result.structuredContent).toMatchObject({
+      refused: { code: "CANCEL_WINDOW_CLOSED", status: "PAID_OUT" },
+    });
+    expect(res.body.result.structuredContent.refused.resolution).toMatch(/recall/);
+  });
+
+  it("rejects malformed input before any core code runs", async () => {
+    for (const [name, args] of [
+      ["get_rate", { from: "USD" }],
+      ["quote_transfer", { send_amount: 10.555, beneficiary_id: "ben_01" }],
+      ["quote_transfer", { send_amount: -5, beneficiary_id: "ben_01" }],
+      ["track_transfer", { transfer_ref: "'; DROP TABLE transfers;--" }],
+    ] as const) {
+      const res = await call(name, args);
+      expect(res.body.result.isError, `${name} ${JSON.stringify(args)}`).toBe(true);
+    }
+  });
+
+  it("an unexpected failure becomes a structured INTERNAL_ERROR, never a crash", async () => {
+    const broken = await testApp();
+    broken.core.db.close();
+    const res = await call("list_beneficiaries", {}, broken.app);
     expect(res.status).toBe(200);
     expect(res.body.result.isError).toBe(true);
+    expect(res.body.result.structuredContent).toMatchObject({
+      refused: { code: "INTERNAL_ERROR" },
+    });
   });
 });
 
@@ -135,13 +242,13 @@ describe("auth and routes", () => {
 
   it("legacy GET /sse is not served", async () => {
     expect((await request(app).get("/sse")).status).toBe(404);
-    expect((await request(app).get("/sse").set("Authorization", `Bearer ${TOKEN}`)).status).toBe(
-      404,
-    );
+    expect(
+      (await request(app).get("/sse").set("Authorization", `Bearer ${TEST_BEARER}`)).status,
+    ).toBe(404);
   });
 
   it("GET /mcp returns 405 in stateless mode", async () => {
-    const res = await request(app).get("/mcp").set("Authorization", `Bearer ${TOKEN}`);
+    const res = await request(app).get("/mcp").set("Authorization", `Bearer ${TEST_BEARER}`);
     expect(res.status).toBe(405);
     expect(res.headers.allow).toBe("POST");
   });

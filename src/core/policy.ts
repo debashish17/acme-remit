@@ -5,6 +5,9 @@ import type { PayoutMethod, Purpose } from "./types.js";
  * these needs sign-off (CLAUDE.md "Ask before"). Amounts in minor units.
  */
 
+/** The one demo user behind the Bearer secret (seeded as Priya Nair, Dubai). */
+export const DEMO_USER_ID = "usr_priya";
+
 export interface TierConfig {
   name: string;
   label: string;
