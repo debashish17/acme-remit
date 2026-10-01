@@ -1,14 +1,15 @@
 {
   "name": "acme-remit",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "private": true,
+  "description": "Acme Remit: self-hosted MCP server for UAE to India remittances over a simulated ledger (Alexa+ hackathon)",
+  "author": "debashish17",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "packageManager": "pnpm@12.8.1",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -16,8 +17,17 @@
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.8.1",
-  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1143.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
@@ -30,14 +40,14 @@
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.6.3",
+    "@types/node": "^22.20.4",
     "@types/supertest": "^7.2.1",
     "eslint": "^10.11.0",
     "prettier": "^3.9.9",
     "supertest": "^7.3.0",
     "tsup": "^8.5.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.0",
     "vitest": "^5.0.3"
   }
