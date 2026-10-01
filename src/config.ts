@@ -11,6 +11,10 @@ const ConfigSchema = z.object({
   RATES_URL: z.url().default("https://api.frankfurter.dev/v1"),
   DB_PATH: z.string().min(1).default("./data/acme-remit.db"),
   TICKER_MS: z.coerce.number().int().min(100).default(15000),
+  // Simulator and dev controls on a public URL. Unset means disabled (fail closed).
+  SIM_ACCESS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
+  DEV_CONTROLS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
+  SIM_DAILY_BEDROCK_CALLS: z.coerce.number().int().min(1).default(500),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -56,7 +56,8 @@ with it, stop and ask rather than improvise.
   us-east-1, min and max instances 1 (the SQLite ledger lives on the instance)
 - Config via `dotenv`, validated with zod at startup:
   `PORT`, `MCP_BEARER_TOKEN`, `BEDROCK_MODEL_ID`, `AWS_REGION`, `RATES_URL`,
-  `DB_PATH`, `TICKER_MS`
+  `DB_PATH`, `TICKER_MS`, `SIM_ACCESS_CODE`, `DEV_CONTROLS_CODE`,
+  `SIM_DAILY_BEDROCK_CALLS`
 
 ## Repo layout
 

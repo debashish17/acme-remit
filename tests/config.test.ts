@@ -14,6 +14,7 @@ describe("parseConfig", () => {
       RATES_URL: "https://api.frankfurter.dev/v1",
       DB_PATH: "./data/acme-remit.db",
       TICKER_MS: 15000,
+      SIM_DAILY_BEDROCK_CALLS: 500,
     });
   });
 
@@ -44,5 +45,20 @@ describe("parseConfig", () => {
 
   it("treats empty strings as unset", () => {
     expect(parseConfig({ MCP_BEARER_TOKEN: TOKEN, PORT: "" }).PORT).toBe(3000);
+  });
+
+  it("leaves the simulator and dev controls disabled unless their codes are set", () => {
+    const cfg = parseConfig({ MCP_BEARER_TOKEN: TOKEN });
+    expect(cfg.SIM_ACCESS_CODE).toBeUndefined();
+    expect(cfg.DEV_CONTROLS_CODE).toBeUndefined();
+    const on = parseConfig({
+      MCP_BEARER_TOKEN: TOKEN,
+      SIM_ACCESS_CODE: "sim-code-123",
+      DEV_CONTROLS_CODE: "dev-code-123",
+    });
+    expect(on.SIM_ACCESS_CODE).toBe("sim-code-123");
+    expect(() => parseConfig({ MCP_BEARER_TOKEN: TOKEN, SIM_ACCESS_CODE: "short" })).toThrow(
+      /SIM_ACCESS_CODE: must be at least 8 characters/,
+    );
   });
 });
