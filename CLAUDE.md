@@ -53,7 +53,7 @@ with it, stop and ask rather than improvise.
 - Vitest + supertest; GitHub Actions on push (`test`, `lint`, `typecheck`)
 - ESLint flat config + Prettier; `tsup` → `dist/`
 - Multi-stage Dockerfile on `node:22-alpine`; deploy target AWS App Runner,
-  us-east-1, min instances 1
+  us-east-1, min and max instances 1 (the SQLite ledger lives on the instance)
 - Config via `dotenv`, validated with zod at startup:
   `PORT`, `MCP_BEARER_TOKEN`, `BEDROCK_MODEL_ID`, `AWS_REGION`, `RATES_URL`,
   `DB_PATH`, `TICKER_MS`

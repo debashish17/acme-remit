@@ -362,14 +362,14 @@ Run `npm test` in CI (GitHub Actions on every push) so the green badge is in the
 
 ## Simulated Alexa+ client
 
-The simulator stands in for Alexa+ because Alexa+ is not available in India; it talks to the MCP server over the same HTTP endpoint Alexa+ would, so nothing in the server is simulator-specific.
+The simulator stands in for Alexa+ because Alexa+ is not available in India. Its server-side relay talks to the MCP server over the same HTTP endpoint Alexa+ would, so nothing in the MCP server is simulator-specific; the browser never holds the Bearer secret.
 
 **How it works**
 
-1. On load, the page calls `POST /mcp` with `initialize` then `tools/list` and keeps the 11 tool schemas.
+1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 12 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
 2. The user speaks (Web Speech API, `webkitSpeechRecognition`) or types. The transcript is appended to a message history.
-3. The page calls a tiny proxy route on the same server, `POST /sim/chat`, which forwards history + tool schemas to Amazon Bedrock (Nova 2 Lite or Claude on Bedrock via the Converse API with tool use). Keeping Bedrock behind the server avoids shipping AWS keys to the browser and is the documented AWS Builder integration.
-4. When Bedrock returns a tool call, the proxy executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until Bedrock returns text.
+3. The page sends the new turn to `POST /sim/chat`. The relay keeps the conversation server-side (tool calls included, in memory, 30-minute expiry) and forwards it with the tool schemas to Amazon Bedrock (Nova 2 Lite or Claude on Bedrock via the Converse API with tool use). Keeping Bedrock behind the server avoids shipping AWS keys to the browser and is the documented AWS Builder integration.
+4. When Bedrock returns a tool call, the relay executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until Bedrock returns text. It returns the reply together with each JSON-RPC request and response and its latency in ms; tokens are shown by prefix only.
 5. The reply is rendered as a chat bubble and spoken with `speechSynthesis`.
 
 **The system prompt given to Bedrock** is the one place you emulate Alexa+ behaviour: be brief, speak amounts in words, always read back a prepared transfer and wait for an explicit yes before calling `confirm_transfer`, ask the user to choose when a recipient is ambiguous, say "recipient" and "receive amount" rather than "beneficiary" or "payout", never speculate about why a transfer is under review, and explain refusals using the `resolution` text.
@@ -382,9 +382,11 @@ The simulator stands in for Alexa+ because Alexa+ is not available in India; it 
 | Protocol panel (collapsible, right) | Live JSON-RPC: each request and response, the negotiated `protocolVersion`, latency per call in ms |
 | Ledger strip (top) | Balance, open quote, latest transfer status; updates live so the ticker is visible |
 | Banner | "Simulated ledger: no real funds move. Mid-market rates are live; Acme pricing is simulated." always visible |
-| Dev controls (hidden behind `?dev=1`) | Fire alert, advance ticker, reset seed: used only while recording |
+| Dev controls (hidden behind `?dev=1`) | Fire alert, advance ticker, release the held transfer, reset seed: used only while recording |
 
 Serve the simulator as static files from the same Express app at `/`, so one App Runner service hosts both and the demo URL is a single link in the README.
+
+**Access on the public URL.** `/sim/*` requires `SIM_ACCESS_CODE` (given to judges in the Devpost text) and is rate-limited per IP, with caps on tool rounds and tokens per turn and a daily ceiling on Bedrock calls. `/dev/*` is off unless `DEV_CONTROLS_CODE` is set. The page sends the code in a header. Because the ledger is SQLite on the instance, App Runner runs exactly one instance (min 1, max 1), and every deploy starts from the seed.
 
 ## Hackathon step-by-step plan
 
