@@ -1,0 +1,427 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Acme Remit MCP server on AWS App Runner (us-east-1). ECR image repo, generated secrets
+  (MCP Bearer token, simulator access code, dev-controls code), App Runner service fixed at one
+  instance (the SQLite ledger lives on the instance), an instance role that may call only the
+  configured Bedrock model, a GitHub Actions OIDC deploy role scoped to one repo and branch, and an
+  optional monthly budget alert. Two-pass first deploy: create with CreateService=false, let the
+  Deploy workflow push the first image, then update with CreateService=true.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: "Service" }
+        Parameters: [CreateService, InstanceCpu, InstanceMemory, EnableDevControls]
+      - Label: { default: "Bedrock" }
+        Parameters: [BedrockModelId, FoundationModelId, SimDailyBedrockCalls]
+      - Label: { default: "GitHub deploys" }
+        Parameters:
+          [
+            GitHubOwner,
+            GitHubRepo,
+            GitHubBranch,
+            CreateGitHubOidcProvider,
+            ExistingGitHubOidcProviderArn,
+          ]
+      - Label: { default: "Cost" }
+        Parameters: [BudgetEmail, MonthlyBudgetUsd]
+
+Parameters:
+  CreateService:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: Set to true only after the Deploy workflow has pushed the first image to ECR (tag "live").
+  InstanceCpu:
+    Type: String
+    AllowedValues: ["0.25 vCPU", "0.5 vCPU", "1 vCPU"]
+    Default: "0.5 vCPU"
+  InstanceMemory:
+    Type: String
+    AllowedValues: ["0.5 GB", "1 GB", "2 GB"]
+    Default: "1 GB"
+  EnableDevControls:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "true"
+    Description: Exposes /dev/* recording controls behind a generated code. Turn off after recording.
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+    Description: Inference profile id the simulator calls (Nova 2 Lite has no in-Region endpoint in us-east-1).
+  FoundationModelId:
+    Type: String
+    Default: amazon.nova-2-lite-v1:0
+    Description: Foundation model behind the inference profile, for the IAM policy.
+  SimDailyBedrockCalls:
+    Type: Number
+    Default: 500
+    MinValue: 1
+  GitHubOwner:
+    Type: String
+    Default: debashish17
+  GitHubRepo:
+    Type: String
+    Default: acme-remit
+  GitHubBranch:
+    Type: String
+    Default: main
+  CreateGitHubOidcProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: Set false if the account already has the token.actions.githubusercontent.com provider.
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: ARN of the existing GitHub OIDC provider, when CreateGitHubOidcProvider is false.
+  BudgetEmail:
+    Type: String
+    Default: ""
+    Description: Email for budget alerts at 50, 80 and 100 percent. Leave empty to skip the budget.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 20
+    MinValue: 1
+
+Conditions:
+  ShouldCreateService: !Equals [!Ref CreateService, "true"]
+  DevControlsOn: !Equals [!Ref EnableDevControls, "true"]
+  ShouldCreateOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+  HasBudgetEmail: !Not [!Equals [!Ref BudgetEmail, ""]]
+
+Resources:
+  # ---------------------------------------------------------------- image registry
+  ImageRepository:
+    Type: AWS::ECR::Repository
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Holds the server image; the Deploy workflow pushes <commit sha> and moves the mutable "live" tag the service runs.
+        must:
+          - Tags must stay MUTABLE because the service tracks the "live" tag.
+    Properties:
+      RepositoryName: !Ref AWS::StackName
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      EmptyOnDelete: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the 15 most recent images",
+                "selection": { "tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 15 },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  # ---------------------------------------------------------------- secrets (generated, never in parameters)
+  McpBearerTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Bearer secret every MCP client presents on POST /mcp; the simulator relay holds it server-side.
+        must:
+          - Rotating it voids outstanding confirmation and cancel tokens (they are bound to a hash of it).
+    Properties:
+      Name: !Sub "${AWS::StackName}/mcp-bearer-token"
+      Description: Bearer token for POST /mcp (MCP_BEARER_TOKEN).
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  SimAccessCodeSecret:
+    Type: AWS::SecretsManager::Secret
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Access code for the public simulator (/sim/*), given to judges in the Devpost text; guards Bedrock spend.
+    Properties:
+      Name: !Sub "${AWS::StackName}/sim-access-code"
+      Description: Simulator access code (SIM_ACCESS_CODE).
+      GenerateSecretString:
+        PasswordLength: 12
+        ExcludePunctuation: true
+
+  DevControlsCodeSecret:
+    Type: AWS::SecretsManager::Secret
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Code for the /dev/* recording controls (advance ticker, release hold, fire alert, reset seed).
+    Properties:
+      Name: !Sub "${AWS::StackName}/dev-controls-code"
+      Description: Dev controls code (DEV_CONTROLS_CODE).
+      GenerateSecretString:
+        PasswordLength: 24
+        ExcludePunctuation: true
+
+  # ---------------------------------------------------------------- App Runner roles
+  AppRunnerAccessRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lets App Runner pull the image from this account's ECR.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: build.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  AppRunnerInstanceRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Runtime identity of the server; the simulator's Bedrock Converse calls and the secret injection use it.
+        must:
+          - Bedrock access stays limited to the configured inference profile and its foundation model.
+          - Cross-Region profiles route to us-east-1, us-east-2 and us-west-2, so the foundation model ARN is allowed in all three.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: tasks.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: bedrock-converse-one-model
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
+                  - !Sub "arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/${FoundationModelId}"
+                  - !Sub "arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/${FoundationModelId}"
+                  - !Sub "arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/${FoundationModelId}"
+        - PolicyName: read-own-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref McpBearerTokenSecret
+                  - !Ref SimAccessCodeSecret
+                  - !Ref DevControlsCodeSecret
+
+  # ---------------------------------------------------------------- App Runner service
+  SingleInstanceScaling:
+    Type: AWS::AppRunner::AutoScalingConfiguration
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The ledger is SQLite on the instance; a second instance would be a second, divergent ledger.
+        must:
+          - MinSize and MaxSize stay 1.
+    Properties:
+      AutoScalingConfigurationName: !Sub "${AWS::StackName}-single"
+      MinSize: 1
+      MaxSize: 1
+      MaxConcurrency: 100
+
+  Service:
+    Type: AWS::AppRunner::Service
+    Condition: ShouldCreateService
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Hosts POST /mcp, the simulator and /health. Deploys are started by the Deploy workflow (start-deployment), not on push.
+        must:
+          - ImageIdentifier stays on the "live" tag so CloudFormation and the running image never drift.
+          - Every deploy starts from the demo seed; that is intended for the simulated ledger.
+    Properties:
+      ServiceName: !Ref AWS::StackName
+      AutoScalingConfigurationArn: !GetAtt SingleInstanceScaling.AutoScalingConfigurationArn
+      SourceConfiguration:
+        AutoDeploymentsEnabled: false
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AppRunnerAccessRole.Arn
+        ImageRepository:
+          ImageRepositoryType: ECR
+          ImageIdentifier: !Sub "${ImageRepository.RepositoryUri}:live"
+          ImageConfiguration:
+            Port: "8080"
+            RuntimeEnvironmentVariables:
+              - Name: BEDROCK_MODEL_ID
+                Value: !Ref BedrockModelId
+              - Name: SIM_DAILY_BEDROCK_CALLS
+                Value: !Ref SimDailyBedrockCalls
+              - Name: TICKER_MS
+                Value: "15000"
+              - Name: RATES_URL
+                Value: https://api.frankfurter.dev/v1
+            RuntimeEnvironmentSecrets:
+              - Name: MCP_BEARER_TOKEN
+                Value: !Ref McpBearerTokenSecret
+              - Name: SIM_ACCESS_CODE
+                Value: !Ref SimAccessCodeSecret
+              - !If
+                - DevControlsOn
+                - Name: DEV_CONTROLS_CODE
+                  Value: !Ref DevControlsCodeSecret
+                - !Ref AWS::NoValue
+      InstanceConfiguration:
+        Cpu: !Ref InstanceCpu
+        Memory: !Ref InstanceMemory
+        InstanceRoleArn: !GetAtt AppRunnerInstanceRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /health
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 5
+      NetworkConfiguration:
+        IngressConfiguration:
+          IsPubliclyAccessible: true
+        EgressConfiguration:
+          EgressType: DEFAULT
+
+  # ---------------------------------------------------------------- GitHub Actions deploys (OIDC, no stored keys)
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lets GitHub Actions exchange its OIDC token for short-lived AWS credentials.
+        must:
+          - One per account; set CreateGitHubOidcProvider=false if it already exists.
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Used by .github/workflows/deploy.yml to push the image, start and watch the App Runner deployment, and run the latency check.
+        must:
+          - Trust stays limited to one repository and branch.
+          - No iam:PassRole and no CloudFormation permissions; infrastructure changes go through this stack, by a human.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/${GitHubBranch}"
+      Policies:
+        - PolicyName: push-image
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !GetAtt ImageRepository.Arn
+        - PolicyName: deploy-service
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: apprunner:ListServices
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apprunner:DescribeService
+                  - apprunner:ListOperations
+                  - apprunner:StartDeployment
+                Resource: !Sub "arn:${AWS::Partition}:apprunner:${AWS::Region}:${AWS::AccountId}:service/${AWS::StackName}/*"
+        - PolicyName: read-bearer-for-latency-check
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref McpBearerTokenSecret
+
+  # ---------------------------------------------------------------- cost guard
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudgetEmail
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Early warning on the always-on instance plus Bedrock usage through the judging period (to 20 Nov 2026).
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 50,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref BudgetEmail }]
+        - Notification:
+            {
+              NotificationType: ACTUAL,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 80,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref BudgetEmail }]
+        - Notification:
+            {
+              NotificationType: FORECASTED,
+              ComparisonOperator: GREATER_THAN,
+              Threshold: 100,
+              ThresholdType: PERCENTAGE,
+            }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref BudgetEmail }]
+
+Outputs:
+  ServiceUrl:
+    Condition: ShouldCreateService
+    Description: Public HTTPS URL (MCP endpoint is <url>/mcp; simulator at <url>/).
+    Value: !Sub "https://${Service.ServiceUrl}"
+  ServiceArn:
+    Condition: ShouldCreateService
+    Value: !GetAtt Service.ServiceArn
+  EcrRepositoryUri:
+    Value: !GetAtt ImageRepository.RepositoryUri
+  GitHubDeployRoleArn:
+    Description: Set as the GitHub repository variable AWS_DEPLOY_ROLE_ARN.
+    Value: !GetAtt GitHubDeployRole.Arn
+  McpBearerTokenSecretArn:
+    Value: !Ref McpBearerTokenSecret
+  SimAccessCodeSecretArn:
+    Value: !Ref SimAccessCodeSecret
+  DevControlsCodeSecretArn:
+    Value: !Ref DevControlsCodeSecret
