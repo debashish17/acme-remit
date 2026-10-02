@@ -24,6 +24,8 @@ export const TOOL_DESCRIPTIONS = {
     "List past transfers for the last N months or to one recipient, including cancelled, returned or refunded ones, with totals and how much of each limit has been used this month.",
   check_limits:
     "Show the user's KYC tier, remaining per-transaction, daily and monthly limits, cash-pickup caps, the reset date, and explain any refusal code in plain words with how to resolve it.",
+  get_help:
+    "Answer general questions about sending money with Acme from the UAE to India, from Acme's reviewed help content: documents, how sending works, recipients, payout methods, fees and rates, limits and tiers, tracking and receipts, cancellations and refunds, NRE and NRO accounts, the Liberalised Remittance Scheme (LRS), tax on money received in India, and staying safe. Use it instead of general knowledge for any rule, document or tax question; for the user's own numbers use check_limits or track_transfer.",
   set_rate_alert:
     'Ask to be told when the AED to INR rate reaches a target. Use when the user says "tell me when" or "alert me if".',
 } as const;

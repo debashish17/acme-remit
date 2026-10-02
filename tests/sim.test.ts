@@ -204,7 +204,7 @@ describe("GET /sim/tools", () => {
     const res = await sim(app).get("/sim/tools");
     expect(res.status).toBe(200);
     expect(res.body.protocol_version).toBe("2025-11-25");
-    expect(res.body.tools).toHaveLength(12);
+    expect(res.body.tools).toHaveLength(13);
     expect(res.body.exchanges.map((e: { method: string }) => e.method)).toEqual([
       "initialize",
       "tools/list",
@@ -260,7 +260,7 @@ describe("POST /sim/chat", () => {
     expect(panel).toMatch(/ct_[A-Za-z0-9_-]{5}…/);
     expect(panel).not.toContain(String(prepareResult?.confirmation_token));
     expect(bedrock.seen[0]?.system?.[0]).toEqual({ text: SYSTEM_PROMPT });
-    expect(bedrock.seen[0]?.toolConfig?.tools).toHaveLength(12);
+    expect(bedrock.seen[0]?.toolConfig?.tools).toHaveLength(13);
     expect(card.charges).toHaveLength(0);
 
     const second = await sim(app).chat("Yes", first.body.conversation_id);

@@ -69,6 +69,7 @@ Twelve tools, one domain, two money-moving tools behind one gate. The `descripti
 | 10 | `get_transfer_history` | List past transfers for the last N months or to one recipient, including cancelled, returned or refunded ones, with totals and how much of each limit has been used this month. | no |
 | 11 | `check_limits` | Show the user's KYC tier, remaining per-transaction, daily and monthly limits, cash-pickup caps, the reset date, and explain any refusal code in plain words with how to resolve it. | no |
 | 12 | `set_rate_alert` | Ask to be told when the AED to INR rate reaches a target. Use when the user says "tell me when" or "alert me if". | alert row |
+| 13 | `get_help` | Answer general questions about sending money with Acme from the UAE to India, from Acme's reviewed help content: documents, how sending works, recipients, payout methods, fees and rates, limits and tiers, tracking and receipts, cancellations and refunds, NRE and NRO accounts, the Liberalised Remittance Scheme (LRS), tax on money received in India, and staying safe. Use it instead of general knowledge for any rule, document or tax question; for the user's own numbers use check_limits or track_transfer. | no |
 
 **Inputs and outputs**
 
@@ -173,6 +174,15 @@ out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount"
 // 12 set_rate_alert
 in:  { "pair": "AED/INR", "target": 23.5, "direction": "above" }
 out: { "alert_id": "al_02", "channel": "push and email", "message": "I'll let you know when a dirham buys more than 23.50 rupees." }
+
+// 13 get_help (topic: overview | documents | how_to_send | recipients | payout_methods | fees_and_rates |
+//    limits_and_tiers | tracking_and_receipts | cancellations_and_refunds | nre_nro | lrs | tax | safety)
+in:  { "topic": "lrs" }
+out: { "topic": "lrs", "title": "The Liberalised Remittance Scheme (LRS)",
+       "answer": "The Liberalised Remittance Scheme covers money that residents of India send out of India, up to 250,000 US dollars a financial year. It does not apply to you sending money into India from the UAE, ...",
+       "points": ["LRS: outward remittances by resident Indians, USD 250,000 per financial year", "..."],
+       "source": "Reserve Bank of India, Liberalised Remittance Scheme", "last_reviewed": "2026-10-03",
+       "disclaimer": "General information, not legal or tax advice. ...", "related": ["nre_nro", "tax"] }
 ```
 
 Every refusal is structured (`code`, numbers, `resolution`) so the model can explain it well. No tool ever returns a bare string error.
@@ -380,7 +390,8 @@ A transfer needs four calls in order (quote, prepare, confirm, confirm with the 
 | `beneficiaries.test.ts` | "Mum", "mother", "amma" resolve to ben\_01 · "my account" resolves to ben\_04 · "Rahul" is ambiguous with two candidates · unknown name returns not\_found with the app hint · never creates a record |
 | `ledger.test.ts` | confirm charges the card exactly once under two concurrent confirms (second refused) · ticker advances SCREENING → SENT\_TO\_PARTNER → PAID\_OUT and sets a UTR · ON\_HOLD is not advanced by the ticker · cancel in SCREENING or ON\_HOLD refunds the amount charged (fee included) and lowers monthly used · cancel after SENT\_TO\_PARTNER refused CANCEL\_WINDOW\_CLOSED · cancel preview then execute consumes one cx\_ token, reuse refused · track returns RFI for ON\_HOLD and refund details for RETURNED · history totals and limits\_used match seeded rows |
 | `rates.test.ts` | live fetch populates cache · second call within 15 min does not hit the network (mocked fetch) · network failure falls back to seeded history with source=fallback |
-| `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 12 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
+| `help.test.ts` | every topic has a spoken answer under 75 words, points, a source and a review date · numbers come from the enforced policy and follow the tier · LRS is said not to apply to inward remittances · NRE/NRO, LRS and tax carry the general-information disclaimer · recipients are never added by voice |
+| `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 13 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
 
 Run `npm test` in CI (GitHub Actions on every push) so the green badge is in the README on submission day.
 

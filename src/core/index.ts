@@ -1,6 +1,7 @@
 import type { Db } from "../db/connection.js";
 import { AlertService } from "./alerts.js";
 import { BeneficiaryService } from "./beneficiaries.js";
+import { helpAnswer, type HelpTopic } from "./help.js";
 import { ConfirmationGate } from "./confirm.js";
 import { LedgerService, type CardGateway } from "./ledger.js";
 import { LimitService } from "./limits.js";
@@ -75,7 +76,9 @@ export function createCore(deps: CoreDeps) {
   const beneficiaries = new BeneficiaryService(db);
   const alerts = new AlertService(db, rates, now);
 
-  return { db, rates, limits, gate, quotes, ledger, stepUp, outbox, beneficiaries, alerts };
+  const help = (topic: HelpTopic) => helpAnswer(topic, tier);
+
+  return { db, rates, limits, gate, quotes, ledger, stepUp, outbox, beneficiaries, alerts, help };
 }
 
 export type Core = ReturnType<typeof createCore>;

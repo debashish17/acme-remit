@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Core } from "../../core/index.js";
+import { HELP_TOPICS, type HelpTopic } from "../../core/help.js";
 import { REFUSAL_CODES, type RefusalCode } from "../../core/types.js";
 import { principalOf } from "../auth.js";
 import { safely } from "../wire.js";
@@ -50,5 +51,21 @@ export function registerAccountTools(server: McpServer, core: Core): void {
         extra: Extra,
       ) => core.alerts.set(principalOf(extra.authInfo).userId, pair, target, direction),
     ),
+  );
+
+  server.registerTool(
+    "get_help",
+    {
+      title: "Remittance help",
+      description: TOOL_DESCRIPTIONS.get_help,
+      inputSchema: {
+        topic: z
+          .enum(HELP_TOPICS)
+          .default("overview")
+          .describe("The closest topic to the question; overview lists them all."),
+      },
+      annotations: READ_ONLY,
+    },
+    safely("get_help", ({ topic }: { topic: HelpTopic }) => core.help(topic)),
   );
 }

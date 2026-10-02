@@ -25,6 +25,7 @@ const TOOLS = [
   "get_transfer_history",
   "check_limits",
   "set_rate_alert",
+  "get_help",
 ];
 
 /** The `description` column for a tool in the docs/SPEC.md tool contract table. */
@@ -87,7 +88,7 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("returns the 12 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
+  it("returns the 13 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
     const res = await rpc("tools/list");
     expect(res.status).toBe(200);
     const tools = res.body.result.tools as Record<string, unknown>[];
@@ -117,6 +118,7 @@ describe("tools/list", () => {
       "track_transfer",
       "get_transfer_history",
       "check_limits",
+      "get_help",
     ]);
   });
 

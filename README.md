@@ -21,24 +21,25 @@ Three safety properties hold for every money movement:
 
 ## Spec
 
-`docs/SPEC.md` is the build contract: decisions, architecture, the 12-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
+`docs/SPEC.md` is the build contract: decisions, architecture, the 13-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
 
 ## Status
 
-Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 12 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
+Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 13 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
-| `get_rate` | Acme's AED→INR rate, mid-market rate, 7-day trend | |
+| `get_rate` | Acme's AED→INR rate, mid-market rate, 7-day trend; any other ECB or dollar-pegged pair for information | |
 | `compare_options` | Receive amount by bank deposit, UPI and cash pickup, against a typical bank | |
 | `list_beneficiaries` / `resolve_beneficiary` | Saved recipients; find one by name, nickname or relationship | |
 | `quote_transfer` | Fee, locked rate, guaranteed receive amount, limit and purpose checks; held 30 min | |
 | `prepare_transfer` | The exact read-back sentence and a single-use 5-minute token | |
-| `confirm_transfer` | Charges the card and submits, once, with that token | **yes** |
+| `confirm_transfer` | Texts a one-time code to the phone; with that code, charges the card and submits, once | **yes** |
 | `track_transfer` / `get_transfer_history` | Status, timeline, UTR, RFI when under review; history with totals | |
 | `cancel_transfer` | Preview with a cancel token, then cancel and refund before payout | **yes** |
 | `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
 | `set_rate_alert` | Tell the user when the rate reaches a target | |
+| `get_help` | Acme's reviewed answers: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
 
 ## Run
 
@@ -124,6 +125,7 @@ The service runs exactly one instance (min = max = 1) because the SQLite ledger 
 | Mid-market exchange rates | yes (Frankfurter) | |
 | Acme FX margin, fees, payout methods, KYC tier limits | | yes |
 | Card funding, ledger, screening, payout partner, UTRs | | yes |
+| SMS delivery of the step-up code (shown on a simulated phone) | | yes |
 
 ## License
 
