@@ -463,6 +463,9 @@ function cardsFor(paired) {
         case "check_limits":
           card = C.limitsCard(sc);
           break;
+        case "get_help":
+          card = C.helpCard(sc);
+          break;
         case "set_rate_alert":
           card = C.alertCard(sc);
           break;

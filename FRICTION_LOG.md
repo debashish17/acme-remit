@@ -122,3 +122,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** None added. We rely on implicit caching and keep the system prompt and tool list byte-identical between calls, so the prefix can match.
 - **Suggestion:** Put every Nova model, including Nova 2, in the explicit-caching table (or say "implicit only"), and document whether `cacheReadInputTokens` reports implicit hits in Converse.
+
+### 2026-10-03 · pnpm 12.8.1 (via corepack) on Windows 11 · the native pnpm binary stopped launching mid-session
+
+- **Task:** Add `@aws-sdk/client-polly` for the simulator's Polly voice; earlier, run `pnpm test` / `pnpm lint`.
+- **Steps:** `pnpm add @aws-sdk/client-polly@^3.1143.0` (and earlier `pnpm exec prettier ...`) from Git Bash; then running `%LOCALAPPDATA%\node\corepack\v1\pnpm\12.8.1\pnpm-native.exe --version` directly.
+- **Expected:** pnpm runs, as it had all session.
+- **Actual:** `Could not run the pnpm binary at ...\pnpm-native.exe: spawnSync ... UNKNOWN`; running the exe directly gives `Permission denied`. The first failure came while the machine was at 0.7 GB of free RAM; it persisted at 2 GB free. pnpm 12 under corepack is a 55 MB native exe downloaded into the user profile on first use (`bin/pnpm.mjs` explains this), which is the kind of file endpoint protection or Smart App Control can start blocking. Cause not confirmed.
+- **Severity:** major (blocks adding a dependency; `pnpm-lock.yaml` must change for CI's `--frozen-lockfile`)
+- **Workaround:** Run tools through Node directly (`node node_modules/vitest/vitest.mjs run`, `node node_modules/typescript/bin/tsc --noEmit`, `node node_modules/eslint/bin/eslint.js .`, `node node_modules/tsup/dist/cli-default.js`). Adding a dependency is left to the user (check Windows Security > Protection history, then `pnpm add` in their own terminal).
+- **Suggestion:** pnpm: fall back to the JS implementation when the native binary can't be spawned, and say why (the UNKNOWN errno hides an access-denied). Corepack: show where the downloaded binary lives and how to re-verify it.

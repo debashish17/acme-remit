@@ -1542,3 +1542,13 @@ body.noproto .proto {
   background: #10141c;
   color: #f3f6f8;
 }
+
+/* help answers */
+.points {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--ink2);
+  font-size: 14px;
+}

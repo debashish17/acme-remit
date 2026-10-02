@@ -427,6 +427,15 @@ export function limitsCard(l) {
     <p class="foot">${esc(l.next_tier)}</p></article>`);
 }
 
+export function helpCard(h) {
+  const points = h.points.map((p) => `<li>${esc(p)}</li>`).join("");
+  return el(`<article class="card help rise" aria-label="${esc(h.title)}">
+    <p class="eyebrow">Acme help · ${esc(h.title)}</p>
+    <p>${esc(h.answer)}</p>
+    <ul class="points">${points}</ul>
+    <p class="foot">${esc(h.source)} · reviewed ${esc(fmt.day(h.last_reviewed))}${h.disclaimer ? ` · ${esc(h.disclaimer)}` : ""}</p></article>`);
+}
+
 export function alertCard(a) {
   return el(`<article class="card alert rise" aria-label="Rate alert set">
     <div class="r-head"><span class="r-tick bell">${ICON.bell}</span><div><b>Rate alert · ${esc(a.direction)} ${esc(fmt.rate(a.target))}</b><small>${esc(a.channel)} · today ${esc(fmt.rate(a.current_rate))}</small></div></div>

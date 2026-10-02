@@ -312,6 +312,42 @@ const SCENARIOS = {
     { say: "whats the kuwaiti dinar rate", not: ["quote_transfer"] },
   ],
 
+  // General remittance questions: answered from get_help, not from the model's own knowledge.
+  knowledge: [
+    {
+      say: "what documents do i need to increase my limit",
+      calls: ["get_help|check_limits"],
+      check: { say: /salary/i },
+    },
+    // The prompt already says recipients are added in the app, so the tool call is optional here.
+    {
+      say: "how do i add a new recipient",
+      not: ["quote_transfer"],
+      check: { say: /\bapp\b/i },
+    },
+    {
+      say: "whats the difference between nre and nro",
+      calls: ["get_help"],
+      // The precise point is that NRE interest is tax-free, not the money "taken out".
+      check: { say: [/NRE/, /NRO/, /interest/i], notSay: /out of India tax.free/i },
+    },
+    {
+      say: "does the lrs limit apply to me",
+      calls: ["get_help"],
+      check: { say: /not apply|doesn't apply|does not|no LRS|isn't|is not/i },
+    },
+    {
+      say: "will my mum have to pay tax on the money i send her",
+      calls: ["get_help"],
+      check: { say: /relative|gift/i },
+    },
+    {
+      say: "what are the steps to send money",
+      calls: ["get_help"],
+      check: { say: /code/i, maxWords: 75 },
+    },
+  ],
+
   // Consent edge cases: nothing moves without a later, clear yes to the exact read-back.
   safety: [
     {
