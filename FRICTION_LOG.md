@@ -92,3 +92,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor (caught before the first call)
 - **Workaround:** Default `BEDROCK_MODEL_ID` to `us.amazon.nova-2-lite-v1:0`; the App Runner role must allow the inference profile and the foundation model in its destination Regions (us-east-1, us-east-2, us-west-2).
 - **Suggestion:** Make the sample code use the inference-profile id wherever In-Region is unavailable, and name the profile in the error message when a bare id is not invocable.
+
+### 2026-10-02 · AWS CLI 2.37.8 (Agent Toolkit) · `list-available-skills` crashes on the Windows console code page
+
+- **Task:** Verify the AWS Agent Toolkit install (setup step 6) on Windows 11, PowerShell 5.1.
+- **Steps:** `aws agent-toolkit list-available-skills --region us-east-1 --profile acme-remit --output json`.
+- **Expected:** The JSON catalog of skills.
+- **Actual:** The service call succeeds and output starts streaming, then the CLI aborts with exit code 255: `aws: [ERROR]: 'charmap' codec can't encode character '→' in position 878: character maps to <undefined>`. A skill description contains `→`, which the default Windows console encoding (cp1252) cannot represent; the bundled Python writes with that encoding instead of UTF-8.
+- **Severity:** minor
+- **Workaround:** Set `PYTHONUTF8=1` (or `PYTHONIOENCODING=utf-8`) before running the command, then the full catalog (114 skills) prints and the exit code is 0.
+- **Suggestion:** Have the CLI write UTF-8 (or fall back to escaped characters) regardless of the console code page, and keep non-ASCII punctuation out of skill descriptions until then.
