@@ -123,6 +123,13 @@ async function start(
   return rig;
 }
 
+const devTurn = (app: Express, i: number, code: string) =>
+  request(app)
+    .post("/sim/chat")
+    .set("x-sim-code", SIM)
+    .set("x-dev-code", code)
+    .send({ text: `hi ${i}` });
+
 const sim = (app: Express) => ({
   get: (path: string) => request(app).get(path).set("x-sim-code", SIM),
   chat: (text: string, conversation_id?: string) =>
@@ -285,6 +292,25 @@ describe("POST /sim/chat", () => {
     const statuses: number[] = [];
     for (let i = 0; i < 31; i++) statuses.push((await sim(app).chat(`hi ${i}`)).status);
     expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
+    expect(statuses[30]).toBe(429);
+  });
+
+  it("lets the dev-controls code past the chat limit, but not past the daily budget", async () => {
+    const bedrock = scripted(Array.from({ length: 40 }, () => say("ok")));
+    const { app } = await start({ converse: bedrock.fn, budget: 32 });
+    const statuses: number[] = [];
+    for (let i = 0; i < 32; i++) statuses.push((await devTurn(app, i, DEV)).status);
+    expect(statuses.every((s) => s === 200)).toBe(true);
+    const capped = await devTurn(app, 32, DEV);
+    expect(capped.body.error).toMatchObject({ code: "DAILY_BUDGET" });
+  });
+
+  it("limits a wrong dev-controls code like any other caller", async () => {
+    const bedrock = scripted(Array.from({ length: 40 }, () => say("ok")));
+    const { app } = await start({ converse: bedrock.fn });
+    const statuses: number[] = [];
+    for (let i = 0; i < 31; i++) statuses.push((await devTurn(app, i, "wrong-dev-code")).status);
+    expect(statuses[29]).toBe(200);
     expect(statuses[30]).toBe(429);
   });
 });

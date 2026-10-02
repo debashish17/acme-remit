@@ -5,7 +5,7 @@ import { DEMO_USER_ID } from "../../core/policy.js";
 import { isRefusal } from "../../core/refusal.js";
 import { toWire } from "../wire.js";
 import type { ChatService } from "./chat.js";
-import { RateLimiter, requireCode, type DailyBudget } from "./guards.js";
+import { hasCode, RateLimiter, requireCode, type DailyBudget } from "./guards.js";
 import type { Exchange, McpRelay } from "./relay.js";
 
 /**
@@ -53,7 +53,10 @@ export function simRouter(deps: SimDeps): Router {
     }
   });
 
-  router.post("/chat", new RateLimiter(30, 10 * 60_000).middleware(), async (req, res) => {
+  // Holders of the dev-controls code (recording, evals) skip the per-IP limit; the daily Bedrock
+  // cap still applies to them.
+  const devCaller = hasCode(deps.devCode, "x-dev-code");
+  router.post("/chat", new RateLimiter(30, 10 * 60_000).middleware(devCaller), async (req, res) => {
     const body = ChatBody.safeParse(req.body);
     if (!body.success) {
       res.status(400).json({ error: "bad_request", message: "Send { text } of 1-500 characters." });

@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { RequestHandler } from "express";
+import type { Request, RequestHandler } from "express";
 
 /**
  * Guards for /sim/* and /dev/* on a public URL: an access code, per-IP rate limits and a daily
@@ -29,6 +29,15 @@ export function requireCode(
   };
 }
 
+/** True when header `name` carries `code` (false when the code is unset). */
+export function hasCode(code: string | undefined, header: string): (req: Request) => boolean {
+  const expected = code ? digest(code) : undefined;
+  return (req) => {
+    const given = req.get(header);
+    return Boolean(expected && given && timingSafeEqual(digest(given), expected));
+  };
+}
+
 /** Fixed-window limiter per client IP. */
 export class RateLimiter {
   private readonly hits = new Map<string, { count: number; windowStart: number }>();
@@ -51,9 +60,10 @@ export class RateLimiter {
     return entry.count <= this.limit;
   }
 
-  middleware(): RequestHandler {
+  /** `skip` exempts a request, e.g. one carrying the dev-controls code. */
+  middleware(skip?: (req: Request) => boolean): RequestHandler {
     return (req, res, next) => {
-      if (this.allow(req.ip ?? "unknown")) {
+      if (skip?.(req) || this.allow(req.ip ?? "unknown")) {
         next();
         return;
       }

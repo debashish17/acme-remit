@@ -29,11 +29,13 @@ export class ApiError extends Error {
   }
 }
 
-async function call(path, { method = "GET", body, dev = false } = {}) {
+async function call(path, { method = "GET", body, dev = false, devToo = false } = {}) {
   const headers = { accept: "application/json" };
   if (body !== undefined) headers["content-type"] = "application/json";
   if (dev) headers["x-dev-code"] = store.get(DEV_KEY);
   else headers["x-sim-code"] = store.get(SIM_KEY);
+  // With the dev code entered (?dev=1), chat skips the per-IP limit for long test sessions.
+  if (devToo && store.get(DEV_KEY)) headers["x-dev-code"] = store.get(DEV_KEY);
   const res = await fetch(path, {
     method,
     headers,
@@ -67,6 +69,7 @@ export const api = {
   chat: (text, conversationId) =>
     call("/sim/chat", {
       method: "POST",
+      devToo: true,
       body: { text, ...(conversationId ? { conversation_id: conversationId } : {}) },
     }),
   state: (since) => call(`/sim/state?since=${encodeURIComponent(since)}`),
