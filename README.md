@@ -25,7 +25,7 @@ Three safety properties hold for every money movement:
 
 ## Status
 
-Phase 2 — core and all 12 tools. The full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals. Next: Phase 3, deployment to AWS App Runner and the Alexa+ simulator. See the phase plan in `docs/SPEC.md`.
+Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 12 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
@@ -51,6 +51,12 @@ pnpm dev
 ```
 
 `pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
+
+### The simulator
+
+Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. Hold the orb, the mic button or Space to talk (Chrome or Edge), or type. **Play demo** steps through the scripted beats one at a time. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens cut to their prefix. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret. `/sim/chat` calls Bedrock, so it needs AWS credentials (for example `AWS_PROFILE=<profile> pnpm dev`).
+
+For recording, `/?dev=1` adds dev controls (advance the ticker, release the held transfer, fire a rate alert, reset the demo data). They need `DEV_CONTROLS_CODE`, and `/dev/*` answers 404 when it is unset. Press H to hide the panels.
 
 ### Run with Docker
 
