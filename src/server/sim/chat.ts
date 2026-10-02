@@ -43,6 +43,8 @@ export interface ToolCallSummary {
   ms: number;
   refused?: string;
   error?: boolean;
+  /** Stopped by the consent guard before reaching /mcp. */
+  blocked?: boolean;
 }
 
 export interface ChatReply {
@@ -58,7 +60,33 @@ export interface ChatReply {
 interface Conversation {
   messages: Message[];
   updatedAt: number;
+  /** Counts user turns; a token may only be spent in a later turn than the one that issued it. */
+  turn: number;
+  /** Confirmation and cancel tokens issued in this conversation, by the turn that issued them. */
+  issuedIn: Map<string, number>;
 }
+
+/**
+ * Consent guard. The money-moving tools hand the model a token together with the sentence to read
+ * back, so nothing on the server stops it from confirming in the same breath. In the simulator, a
+ * token issued in this user turn cannot be spent until the user has replied: the call is answered
+ * here, never reaches /mcp, and the model is told to read back and wait.
+ */
+const SPENDS_TOKEN: Record<string, string> = {
+  confirm_transfer: "confirmation_token",
+  cancel_transfer: "cancel_token",
+};
+const ISSUES_TOKEN: Record<string, string> = {
+  prepare_transfer: "confirmation_token",
+  cancel_transfer: "cancel_token",
+};
+const AWAITING_USER = {
+  refused: {
+    code: "AWAITING_USER_CONFIRMATION",
+    resolution:
+      "Nothing was done. Read the confirmation back to the user word for word, then wait for their reply. Use the token only after they clearly agree.",
+  },
+};
 
 const MSG = {
   budget: "The demo has used today's assistant allowance. Please try again tomorrow.",
@@ -108,8 +136,14 @@ export class ChatService {
     this.expire();
     const id =
       conversationId && this.conversations.has(conversationId) ? conversationId : randomUUID();
-    const convo = this.conversations.get(id) ?? { messages: [], updatedAt: this.now() };
+    const convo: Conversation = this.conversations.get(id) ?? {
+      messages: [],
+      updatedAt: this.now(),
+      turn: 0,
+      issuedIn: new Map(),
+    };
     this.conversations.set(id, convo);
+    const turn = ++convo.turn;
     const turnStart = convo.messages.length;
     convo.messages.push({ role: "user", content: [{ text }] });
     // An aborted turn is dropped whole, so the stored history keeps alternating user/assistant.
@@ -183,6 +217,20 @@ export class ChatService {
       const results: ContentBlock[] = [];
       for (const use of uses) {
         const before = exchanges.length;
+        const name = use.name ?? "";
+        const input = (use.input ?? {}) as Record<string, unknown>;
+        const spent = SPENDS_TOKEN[name] ? input[SPENDS_TOKEN[name]] : undefined;
+        if (typeof spent === "string" && convo.issuedIn.get(spent) === turn) {
+          toolCalls.push({ name, ms: 0, refused: AWAITING_USER.refused.code, blocked: true });
+          results.push({
+            toolResult: {
+              toolUseId: use.toolUseId,
+              content: [{ json: AWAITING_USER as unknown as Record<string, never> }],
+              status: "error",
+            },
+          });
+          continue;
+        }
         try {
           const outcome = await this.opts.relay.callTool(
             use.name ?? "",
@@ -190,6 +238,8 @@ export class ChatService {
             exchanges,
           );
           const refused = (outcome.structured.refused as { code?: string } | undefined)?.code;
+          const issued = ISSUES_TOKEN[name] ? outcome.structured[ISSUES_TOKEN[name]] : undefined;
+          if (typeof issued === "string") convo.issuedIn.set(issued, turn);
           toolCalls.push({
             name: use.name ?? "",
             ms: exchanges.slice(before).reduce((sum, e) => sum + e.ms, 0),

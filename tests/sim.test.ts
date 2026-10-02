@@ -360,3 +360,87 @@ describe("helpers", () => {
     });
   });
 });
+
+describe("consent guard", () => {
+  /** The value of `key` in the most recent tool result that has it. */
+  function fromHistory(input: ConverseCommandInput, key: string): unknown {
+    for (const m of [...(input.messages ?? [])].reverse()) {
+      for (const b of m.content ?? []) {
+        const json = b.toolResult?.content?.[0]?.json as Record<string, unknown> | undefined;
+        if (json && key in json) return json[key];
+      }
+    }
+    return undefined;
+  }
+
+  it("blocks confirm_transfer in the same turn as prepare_transfer; the next turn's yes goes through", async () => {
+    const bedrock = scripted([
+      toolUse("quote_transfer", { send_amount: 2000, beneficiary_id: "ben_01" }),
+      (input) => toolUse("prepare_transfer", { quote_id: lastToolResult(input).quote_id }),
+      // An over-eager model tries to confirm before the user has answered.
+      (input) =>
+        toolUse("confirm_transfer", {
+          confirmation_token: fromHistory(input, "confirmation_token"),
+        }),
+      (input) => say(String(fromHistory(input, "read_back"))),
+      // Turn two, after the user says yes.
+      (input) =>
+        toolUse("confirm_transfer", {
+          confirmation_token: fromHistory(input, "confirmation_token"),
+        }),
+      (input) => say(`Done: ${String(lastToolResult(input).transfer_ref)}.`),
+    ]);
+    const { app, card } = await start({ converse: bedrock.fn });
+
+    const first = await sim(app).chat("Send 2,000 dirhams to Mum");
+    expect(first.body.tool_calls).toEqual([
+      expect.objectContaining({ name: "quote_transfer" }),
+      expect.objectContaining({ name: "prepare_transfer" }),
+      { name: "confirm_transfer", ms: 0, refused: "AWAITING_USER_CONFIRMATION", blocked: true },
+    ]);
+    expect(card.charges).toHaveLength(0);
+    // The blocked call never reached the MCP server.
+    const calls = first.body.exchanges.map(
+      (e: { request: { params?: { name?: string } } }) => e.request.params?.name,
+    );
+    expect(calls).not.toContain("confirm_transfer");
+    // The model was told to read back and wait.
+    expect(lastToolResult(bedrock.seen[3] as ConverseCommandInput)).toMatchObject({
+      refused: { code: "AWAITING_USER_CONFIRMATION" },
+    });
+    expect(first.body.reply).toMatch(/^Send 2,000 dirhams to Mum/);
+
+    const second = await sim(app).chat("Yes, go ahead", first.body.conversation_id);
+    expect(second.body.reply).toBe("Done: ACM-240121.");
+    expect(second.body.tool_calls).toEqual([expect.not.objectContaining({ blocked: true })]);
+    expect(card.charges).toHaveLength(1);
+  });
+
+  it("blocks a cancel executed in the same turn as its preview", async () => {
+    const bedrock = scripted([
+      toolUse("cancel_transfer", { transfer_ref: "ACM-240120" }),
+      (input) =>
+        toolUse("cancel_transfer", {
+          transfer_ref: "ACM-240120",
+          cancel_token: fromHistory(input, "cancel_token"),
+        }),
+      (input) => say(String(fromHistory(input, "preview"))),
+      (input) =>
+        toolUse("cancel_transfer", {
+          transfer_ref: "ACM-240120",
+          cancel_token: fromHistory(input, "cancel_token"),
+        }),
+      () => say("Cancelled."),
+    ]);
+    const { app, core, card } = await start({ converse: bedrock.fn });
+
+    const first = await sim(app).chat("Cancel the one to my NRE account");
+    expect(first.body.tool_calls[1]).toMatchObject({ name: "cancel_transfer", blocked: true });
+    expect(core.ledger.track(USER_ID, "ACM-240120")).toMatchObject({ status: "ON_HOLD" });
+    expect(first.body.reply).toMatch(/^Cancel the 13,000 dirham transfer/);
+
+    await sim(app).chat("Yes", first.body.conversation_id);
+    expect(core.ledger.track(USER_ID, "ACM-240120")).toMatchObject({ status: "CANCELLED" });
+    expect(card.refunds).toHaveLength(1);
+  });
+});
