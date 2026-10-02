@@ -57,6 +57,31 @@ function lastToolResult(input: ConverseCommandInput): Record<string, unknown> {
   throw new Error("no tool result yet");
 }
 
+/** The value of `key` in the most recent tool result that has it. */
+function fromHistory(input: ConverseCommandInput, key: string): unknown {
+  for (const m of [...(input.messages ?? [])].reverse()) {
+    for (const b of m.content ?? []) {
+      const json = b.toolResult?.content?.[0]?.json as Record<string, unknown> | undefined;
+      if (json && key in json) return json[key];
+    }
+  }
+  return undefined;
+}
+
+/** The latest text the user typed or said. */
+function lastUserText(input: ConverseCommandInput): string {
+  for (const m of [...(input.messages ?? [])].reverse()) {
+    const text = m.role === "user" ? m.content?.find((b) => b.text !== undefined)?.text : undefined;
+    if (text !== undefined) return text;
+  }
+  return "";
+}
+
+/** The code in the latest text on the simulated phone. */
+const latestCode = (core: Core) =>
+  /\b(\d{6})\b/.exec(core.outbox.since(USER_ID, "2000-01-01T00:00:00Z").at(-1)?.body ?? "")?.[1] ??
+  "";
+
 /** A scripted Bedrock: each call takes the next step and records a copy of what it was sent. */
 function scripted(steps: Step[]) {
   const seen: ConverseCommandInput[] = [];
@@ -207,6 +232,15 @@ describe("POST /sim/chat", () => {
           confirmation_token: prepared?.confirmation_token,
         });
       },
+      (input) => {
+        const r = lastToolResult(input).refused as { sent_to?: string } | undefined;
+        return say(`I've texted a code to your ${String(r?.sent_to)}. Please read it out.`);
+      },
+      (input) =>
+        toolUse("confirm_transfer", {
+          confirmation_token: fromHistory(input, "confirmation_token"),
+          otp: lastUserText(input),
+        }),
       (input) => say(`Done. Reference ${String(lastToolResult(input).transfer_ref)}.`),
     ]);
     const { app, core, card } = await start({ converse: bedrock.fn });
@@ -231,8 +265,23 @@ describe("POST /sim/chat", () => {
 
     const second = await sim(app).chat("Yes", first.body.conversation_id);
     expect(second.body.conversation_id).toBe(first.body.conversation_id);
-    expect(second.body.reply).toBe("Done. Reference ACM-240121.");
+    expect(second.body.reply).toBe(
+      "I've texted a code to your phone ending 4471. Please read it out.",
+    );
+    expect(second.body.tool_calls).toEqual([
+      expect.objectContaining({ name: "confirm_transfer", refused: "STEP_UP_REQUIRED" }),
+    ]);
+    expect(card.charges).toHaveLength(0);
+    // The code went to the phone, not to the model.
+    const code = latestCode(core);
+    expect(code).toMatch(/^\d{6}$/);
+    expect(JSON.stringify(bedrock.seen)).not.toContain(code);
+
+    const third = await sim(app).chat(code.split("").join(" "), first.body.conversation_id);
+    expect(third.body.reply).toBe("Done. Reference ACM-240121.");
     expect(card.charges).toHaveLength(1);
+    // The protocol panel shows only the start of the code.
+    expect(JSON.stringify(third.body.exchanges)).not.toContain(code.split("").join(" "));
     expect(core.ledger.track(USER_ID, "ACM-240121")).toMatchObject({ status: "SCREENING" });
     // Turn two carried the whole first turn, tool calls included.
     expect(bedrock.seen[4]?.messages?.length).toBe(9);
@@ -348,6 +397,20 @@ describe("GET /sim/state", () => {
     await sim(app).dev("/dev/alert");
     res = await sim(app).get(`/sim/state?since=${encodeURIComponent("2026-01-01T00:00:00Z")}`);
     expect(res.body.alerts).toEqual([expect.objectContaining({ alert_id: "al_01" })]);
+
+    // The simulated phone shows step-up texts.
+    const q = await core.quotes.create(USER_ID, { beneficiaryId: "ben_01", sendMinor: 50_000 });
+    if ("refused" in q) throw new Error("quote refused");
+    const prep = core.quotes.prepare(USER_ID, q.quote_id, "usr_priya:c");
+    if ("refused" in prep) throw new Error("prepare refused");
+    core.stepUp.confirm(USER_ID, prep.confirmation_token, "usr_priya:c");
+    res = await sim(app).get(`/sim/state?since=${encodeURIComponent("2026-01-01T00:00:00Z")}`);
+    expect(res.body.sms).toEqual([
+      expect.objectContaining({
+        to: "4471",
+        body: expect.stringMatching(/^Acme: \d{6} is your code/),
+      }),
+    ]);
   });
 });
 
@@ -403,17 +466,6 @@ describe("helpers", () => {
 });
 
 describe("consent guard", () => {
-  /** The value of `key` in the most recent tool result that has it. */
-  function fromHistory(input: ConverseCommandInput, key: string): unknown {
-    for (const m of [...(input.messages ?? [])].reverse()) {
-      for (const b of m.content ?? []) {
-        const json = b.toolResult?.content?.[0]?.json as Record<string, unknown> | undefined;
-        if (json && key in json) return json[key];
-      }
-    }
-    return undefined;
-  }
-
   it("blocks confirm_transfer in the same turn as prepare_transfer; the next turn's yes goes through", async () => {
     const bedrock = scripted([
       toolUse("quote_transfer", { send_amount: 2000, beneficiary_id: "ben_01" }),
@@ -424,14 +476,21 @@ describe("consent guard", () => {
           confirmation_token: fromHistory(input, "confirmation_token"),
         }),
       (input) => say(String(fromHistory(input, "read_back"))),
-      // Turn two, after the user says yes.
+      // Turn two, after the user says yes: a code goes to the phone.
       (input) =>
         toolUse("confirm_transfer", {
           confirmation_token: fromHistory(input, "confirmation_token"),
         }),
+      () => say("Please read the code."),
+      // Turn three, the user reads the code.
+      (input) =>
+        toolUse("confirm_transfer", {
+          confirmation_token: fromHistory(input, "confirmation_token"),
+          otp: lastUserText(input),
+        }),
       (input) => say(`Done: ${String(lastToolResult(input).transfer_ref)}.`),
     ]);
-    const { app, card } = await start({ converse: bedrock.fn });
+    const { app, card, core } = await start({ converse: bedrock.fn });
 
     const first = await sim(app).chat("Send 2,000 dirhams to Mum");
     expect(first.body.tool_calls).toEqual([
@@ -452,8 +511,13 @@ describe("consent guard", () => {
     expect(first.body.reply).toMatch(/^Send 2,000 dirhams to Mum/);
 
     const second = await sim(app).chat("Yes, go ahead", first.body.conversation_id);
-    expect(second.body.reply).toBe("Done: ACM-240121.");
-    expect(second.body.tool_calls).toEqual([expect.not.objectContaining({ blocked: true })]);
+    expect(second.body.tool_calls).toEqual([
+      expect.objectContaining({ refused: "STEP_UP_REQUIRED", name: "confirm_transfer" }),
+    ]);
+    expect(card.charges).toHaveLength(0);
+    const third = await sim(app).chat(latestCode(core), first.body.conversation_id);
+    expect(third.body.reply).toBe("Done: ACM-240121.");
+    expect(third.body.tool_calls).toEqual([expect.not.objectContaining({ blocked: true })]);
     expect(card.charges).toHaveLength(1);
   });
 

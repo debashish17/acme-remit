@@ -109,6 +109,9 @@ function check(turn, r, state) {
   ) {
     fails.push("did not cancel");
   }
+  const confirmedNow = results(r, "confirm_transfer").some((c) => c.out.transfer_ref);
+  if (turn.confirmed && !confirmedNow) fails.push("transfer not confirmed");
+  if (turn.notConfirmed && confirmedNow) fails.push("money moved without the code");
   if (turn.saysRate) {
     const out = results(r, "get_rate").at(-1)?.out;
     const rate = out?.customer_rate ?? out?.mid_rate;
@@ -156,7 +159,13 @@ const SCENARIOS = {
     {
       say: "Yes.",
       calls: ["confirm_transfer"],
-      check: { say: /ACM-\d+/, state: latestIs("SCREENING", "SENT_TO_PARTNER") },
+      refused: "STEP_UP_REQUIRED",
+      check: { say: /code/i, notConfirmed: true },
+    },
+    {
+      code: "digits",
+      calls: ["confirm_transfer"],
+      check: { confirmed: true, say: /ACM-\d+/, state: latestIs("SCREENING", "SENT_TO_PARTNER") },
     },
     {
       say: "Send her another three thousand.",
@@ -226,7 +235,13 @@ const SCENARIOS = {
     {
       say: "ok yes go ahead",
       calls: ["confirm_transfer"],
-      check: { state: latestIs("SCREENING", "SENT_TO_PARTNER") },
+      refused: "STEP_UP_REQUIRED",
+      check: { say: /code/i, notConfirmed: true },
+    },
+    {
+      code: "words",
+      calls: ["confirm_transfer"],
+      check: { confirmed: true, state: latestIs("SCREENING", "SENT_TO_PARTNER") },
     },
     {
       say: "can you send rahul 500 dirhams",
@@ -249,7 +264,14 @@ const SCENARIOS = {
     {
       say: "yes",
       calls: ["confirm_transfer"],
+      refused: "STEP_UP_REQUIRED",
+      check: { say: /code/i, notConfirmed: true },
+    },
+    {
+      code: "digits",
+      calls: ["confirm_transfer"],
       check: {
+        confirmed: true,
         state: (s) =>
           s.latest_transfer?.send_amount === 300
             ? null
@@ -308,6 +330,23 @@ const SCENARIOS = {
     { say: "actually no keep it", check: { notCancelled: true, state: latestIs("ON_HOLD") } },
     // An open question; four facts (month, today, per transfer, next tier) is a fair answer.
     { say: "what are my limits", calls: ["check_limits"], check: { maxWords: 75 } },
+    { say: "send 500 dirhams to mum", calls: ["prepare_transfer"], check: { readBack: true } },
+    {
+      say: "yes please",
+      calls: ["confirm_transfer"],
+      refused: "STEP_UP_REQUIRED",
+      check: { say: /code/i, notConfirmed: true },
+    },
+    {
+      code: "wrong",
+      refused: "OTP_INVALID",
+      check: { notConfirmed: true, state: latestIs("ON_HOLD") },
+    },
+    {
+      code: "digits",
+      calls: ["confirm_transfer"],
+      check: { confirmed: true, state: latestIs("SCREENING", "SENT_TO_PARTNER") },
+    },
     {
       say: "add a new recipient called priya with her bank account",
       not: ["quote_transfer", "prepare_transfer"],
@@ -332,11 +371,26 @@ async function http(path, { body } = {}) {
   return json;
 }
 
+const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+/** What the user says to read out the code in the latest text on the simulated phone. */
+async function readCode(kind, since) {
+  const sms = (await http(`/sim/state?since=${encodeURIComponent(since)}`)).sms ?? [];
+  const code = /\b(\d{6})\b/.exec(sms.at(-1)?.body ?? "")?.[1] ?? "000000";
+  if (kind === "words") return `it's ${[...code].map((d) => WORDS[Number(d)]).join(" ")}`;
+  if (kind === "wrong") {
+    const wrong = [...code].map((d) => (Number(d) + 1) % 10).join("");
+    return `the code is ${[...wrong].join(" ")}`;
+  }
+  return `the code is ${[...code].join(" ")}`;
+}
+
 async function play(name, steps) {
   await http("/dev/reset", { body: {} });
+  const since = new Date().toISOString();
   let conversation;
   const turns = [];
-  for (const step of steps) {
+  for (let step of steps) {
     if (step.dev) {
       for (let i = 0; i < (step.times ?? 1); i++) await http(`/dev/${step.dev}`, { body: {} });
       continue;
@@ -344,6 +398,7 @@ async function play(name, steps) {
     const started = performance.now();
     const before = (await http(`/sim/state?since=${encodeURIComponent(new Date().toISOString())}`))
       .assistant_calls_left_today;
+    if (step.code) step = { ...step, say: await readCode(step.code, since) };
     const r = await http("/sim/chat", {
       body: { text: step.say, ...(conversation ? { conversation_id: conversation } : {}) },
     });
@@ -382,10 +437,10 @@ const step = (n) => SCENARIOS.script[n];
 const USE_CASE_LIST = [
   ["Check the rate", [step(0)]],
   ["How much would arrive", [step(1)]],
-  ["Send money: ask, read-back, yes", [step(2), step(3)]],
+  ["Send money: ask, read-back, yes, code", [step(2), step(3), step(4)]],
   ["Track a transfer", [{ say: "Where's my money?", calls: ["track_transfer"] }]],
-  ["Cancel: preview, yes", [step(9), step(10)]],
-  ["Set a rate alert", [step(11)]],
+  ["Cancel: preview, yes", [step(10), step(11)]],
+  ["Set a rate alert", [step(12)]],
   ["Whole demo script, one conversation", SCENARIOS.script],
 ];
 

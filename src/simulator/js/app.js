@@ -60,6 +60,8 @@ const S = {
   since: new Date().toISOString(),
   receipts: new Map(), // transfer_ref -> receipt card
   consent: null, // the open read-back or cancel-preview card
+  stepUp: null, // the open "check your phone" card
+  lastCode: null, // the code in the latest text on the simulated phone
   pollTimer: null,
   speakGen: 0,
   listening: null,
@@ -89,10 +91,21 @@ function addBot(text, err = false) {
   p.textContent = text;
   return append(p);
 }
-function toast(title, sub, icon = C.ICON.bell, ms = 6000) {
+function toast(title, sub, icon = C.ICON.bell, ms = 6000, action = null) {
   const t = document.createElement("div");
   t.className = "toast rise";
   t.innerHTML = `${icon}<div><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div>`;
+  if (action) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn sm";
+    b.textContent = action.label;
+    b.addEventListener("click", () => {
+      action.onClick();
+      t.remove();
+    });
+    t.append(b);
+  }
   $("#toasts").append(t);
   setTimeout(() => t.classList.add("in"), 30);
   setTimeout(() => {
@@ -286,6 +299,8 @@ function renderProtoTurn(n, r, { head, paired }) {
   paired.forEach(({ tc, x, sc }, i) => {
     let flag = null;
     if (tc.blocked) flag = { cls: "bl", text: "held by consent guard" };
+    else if (tc.refused === "STEP_UP_REQUIRED")
+      flag = { cls: "bl", text: "code texted · nothing sent yet" };
     else if (tc.refused) flag = { cls: "rf", text: `refused ${tc.refused}` };
     else if (tc.error) flag = { cls: "rf", text: "error" };
     else if (
@@ -367,9 +382,18 @@ function cardsFor(paired) {
     }
     if (!sc) continue;
     let card = null;
-    if (sc.refused) {
+    if (sc.refused?.code === "STEP_UP_REQUIRED") {
+      settleConsent("You said yes · waiting for the code from your phone");
+      S.stepUp?.settle("Replaced by a new code");
+      card = C.stepUpCard(sc.refused);
+      S.stepUp = card;
+    } else if (sc.refused) {
       card = C.refusalCard(sc.refused);
       if (tc.name === "confirm_transfer") settleConsent("Not confirmed · see below");
+      if (tc.name === "confirm_transfer" && /OTP_LOCKED|OTP_EXPIRED/.test(sc.refused.code)) {
+        S.stepUp?.settle("Not sent");
+        S.stepUp = null;
+      }
       if (tc.name === "cancel_transfer" && sc.refused.code !== "AWAITING_USER_CONFIRMATION")
         settleConsent("Not cancelled · see below");
     } else {
@@ -404,6 +428,9 @@ function cardsFor(paired) {
           break;
         case "confirm_transfer":
           settleConsent(`Confirmed · ${sc.transfer_ref}`);
+          S.stepUp?.settle(`Approved with the code from your phone · ${sc.transfer_ref}`);
+          S.stepUp = null;
+          S.lastCode = null;
           card = C.receiptCard(sc, { onCancel: (ref) => send(`Cancel transfer ${ref}.`) });
           S.receipts.set(sc.transfer_ref, card);
           orb.setTick(1);
@@ -674,11 +701,20 @@ document.addEventListener("keyup", (e) => {
 });
 
 /* ---------- demo player: the scripted beats from SPEC, said by you one at a time ---------- */
+/** Stands for "read out the code from the latest text"; the code is only known at run time. */
+const CODE_BEAT = "{code}";
+const beatText = (b) =>
+  b === CODE_BEAT
+    ? S.lastCode
+      ? `The code is ${S.lastCode.split("").join(" ")}.`
+      : "Read the code from the text message."
+    : b;
 const BEATS = [
   "What's the rupee at today?",
   "How much would Mum get for 2,000 dirhams?",
   "Send 2,000 dirhams to Mum.",
   "Yes.",
+  CODE_BEAT,
   "Send her another three thousand.",
   "Send 500 to Rahul.",
   "Where's Mum's money?",
@@ -695,7 +731,7 @@ function demoSync() {
   $("#demoBtn span").textContent = on ? "Stop demo" : "Play demo";
   if (!on) return;
   $("#dCount").textContent = `${beat + 1} / ${BEATS.length}`;
-  $("#dLine").textContent = `“${BEATS[beat]}”`;
+  $("#dLine").textContent = `“${beatText(BEATS[beat])}”`;
   $("#dSend").disabled = S.busy;
 }
 function demoGo(i) {
@@ -707,7 +743,8 @@ $("#dSkip").addEventListener("click", () => demoGo(beat + 1 < BEATS.length ? bea
 $("#dExit").addEventListener("click", () => demoGo(-1));
 $("#dSend").addEventListener("click", () => {
   if (S.busy) return;
-  const t = BEATS[beat];
+  if (BEATS[beat] === CODE_BEAT && !S.lastCode) return; // wait for the text to arrive
+  const t = beatText(BEATS[beat]);
   demoGo(beat + 1 < BEATS.length ? beat + 1 : -1);
   void send(t);
 });
@@ -736,6 +773,20 @@ function renderState(s) {
   if (s.rate)
     setLedger("#lRate", `${fmt.rate(s.rate.customer_rate)} · mid ${fmt.rate(s.rate.mid_rate)}`);
   if (t) S.receipts.get(t.transfer_ref)?.update(t);
+  for (const m of s.sms ?? []) {
+    const code = /\b(\d{6})\b/.exec(m.body)?.[1];
+    if (code) S.lastCode = code;
+    toast(
+      `Messages · to phone ending ${m.to}`,
+      m.body,
+      C.ICON.sms,
+      90_000,
+      code
+        ? { label: "Use code", onClick: () => send(`The code is ${code.split("").join(" ")}.`) }
+        : null,
+    );
+    announce("New text message from Acme with a one-time code.");
+  }
   for (const a of s.alerts) {
     toast(
       `Rate alert · AED/INR ${a.direction} ${fmt.rate(a.target)}`,

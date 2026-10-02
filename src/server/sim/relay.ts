@@ -35,9 +35,17 @@ export interface RelayOptions {
 
 const TOKEN = /\b(c[tx]_)([A-Za-z0-9_-]{5})[A-Za-z0-9_-]{20,}/g;
 
-/** Replaces every confirmation or cancel token with its prefix, e.g. "ct_9b2eQ…". */
+/** A step-up code in tool arguments: shown as its first two digits, e.g. "48••••". */
+const OTP_ARG = /("otp":")([^"]*)(")/g;
+
+/** Replaces every confirmation or cancel token with its prefix, e.g. "ct_9b2eQ…", and masks codes. */
 export function redactTokens<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value).replace(TOKEN, "$1$2…")) as T;
+  const json = JSON.stringify(value)
+    .replace(TOKEN, "$1$2…")
+    .replace(OTP_ARG, (_m, open: string, code: string, close: string) => {
+      return `${open}${code.replace(/\D/g, "").slice(0, 2)}••••${close}`;
+    });
+  return JSON.parse(json) as T;
 }
 
 export class McpRelay {

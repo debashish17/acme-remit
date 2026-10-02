@@ -46,6 +46,7 @@ export const ICON = {
     '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
   ),
   copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/>'),
+  sms: svg('<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 18.5h4"/>'),
 };
 
 const el = (html) => {
@@ -432,6 +433,33 @@ export function alertCard(a) {
     ${a.already_met ? `<p>${esc(a.message)}</p>` : ""}</article>`);
 }
 
+/* ---------- step-up: a code texted to the phone before money moves ---------- */
+export function stepUpCard(r) {
+  const card = el(`<article class="card consent stepup rise" aria-label="Check your phone">
+    <div class="c-head"><span class="c-tag">Check your phone · nothing sent yet</span>
+      <span class="c-timer"><span class="cd" aria-label="Code expires in">5:00</span></span></div>
+    <div class="r-head"><span class="r-tick bell">${ICON.sms}</span><div><b>Code sent to your ${esc(r.sent_to)}</b><small>Read the 6-digit code out to approve this transfer · ${esc(r.attempts_left)} tries</small></div></div>
+  </article>`);
+  const cd = card.querySelector(".cd");
+  const tick = () => {
+    const left = (Date.parse(r.expires_at) - Date.now()) / 1000;
+    cd.textContent = fmt.mmss(left);
+    if (left <= 0) {
+      card.classList.add("expired");
+      card.querySelector(".c-tag").textContent = "Code expired · nothing was sent";
+      clearInterval(iv);
+    }
+  };
+  const iv = setInterval(tick, 1000);
+  tick();
+  card.settle = (text) => {
+    clearInterval(iv);
+    card.classList.add("settled");
+    card.querySelector(".c-tag").textContent = text;
+  };
+  return card;
+}
+
 const REFUSAL_TITLE = {
   MONTHLY_LIMIT: "Monthly limit reached",
   DAILY_LIMIT: "Daily limit reached",
@@ -451,6 +479,11 @@ const REFUSAL_TITLE = {
   TOKEN_UNKNOWN: "Confirmation not valid",
   TOKEN_EXPIRED: "Confirmation expired",
   TOKEN_USED: "Already done",
+  OTP_INVALID: "Code didn't match",
+  OTP_EXPIRED: "Code expired",
+  OTP_LOCKED: "Too many wrong codes",
+  CURRENCY_NOT_SUPPORTED: "Currency not available",
+  RATE_UNAVAILABLE: "Rate unavailable",
   CARD_DECLINED: "Card declined",
   TRANSFER_NOT_FOUND: "Transfer not found",
   CANCEL_WINDOW_CLOSED: "Too late to cancel",

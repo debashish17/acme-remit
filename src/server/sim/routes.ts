@@ -89,6 +89,8 @@ export function simRouter(deps: SimDeps): Router {
         limits: core.limits.remaining(DEMO_USER_ID),
         rate,
         alerts: core.alerts.firedSince(DEMO_USER_ID, since),
+        // The demo customer's phone: step-up codes arrive here, as an SMS would.
+        sms: core.outbox.since(DEMO_USER_ID, since),
         assistant_calls_left_today: budget.remaining,
       }),
     );
