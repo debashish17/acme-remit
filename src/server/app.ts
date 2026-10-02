@@ -3,6 +3,7 @@ import type { Core } from "../core/index.js";
 import { bearerAuth } from "./auth.js";
 import { mcpPostHandler, methodNotAllowed } from "./mcp.js";
 import { devRouter, simRouter, type SimDeps } from "./sim/routes.js";
+import { securityHeaders, simulatorDir, simulatorStatic } from "./web.js";
 
 export interface AppOptions {
   bearerToken: string;
@@ -16,6 +17,7 @@ export function createApp({ bearerToken, core, sim }: AppOptions): Express {
   app.disable("x-powered-by");
   // App Runner terminates TLS in front of the container; trust its one hop for req.ip.
   app.set("trust proxy", 1);
+  app.use(securityHeaders);
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
@@ -29,6 +31,9 @@ export function createApp({ bearerToken, core, sim }: AppOptions): Express {
   if (sim) {
     app.use("/sim", simRouter({ ...sim, core }));
     app.use("/dev", devRouter({ ...sim, core }));
+    // The simulator page at "/". Its API is /sim/*; the page never holds the Bearer secret.
+    const dir = simulatorDir();
+    if (dir) app.use(simulatorStatic(dir));
   }
 
   app.use((_req, res) => {

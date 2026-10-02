@@ -14,5 +14,7 @@ export default defineConfig({
   onSuccess: async () => {
     cpSync("src/db/schema.sql", "dist/schema.sql");
     cpSync("src/db/migrations", "dist/migrations", { recursive: true });
+    // The simulator page is served as static files from dist/simulator.
+    cpSync("src/simulator", "dist/simulator", { recursive: true });
   },
 });
