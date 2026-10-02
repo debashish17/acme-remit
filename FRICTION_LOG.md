@@ -82,3 +82,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** major (the design's only live dependency did not cover the corridor)
 - **Workaround:** Pending a decision; candidate is USD→INR from Frankfurter divided by the CBUAE peg of 3.6725 AED/USD, with `RATES_URL` pointed straight at `https://api.frankfurter.dev/v1`.
 - **Suggestion:** Return a 400 naming the unsupported currency and listing `/currencies` instead of a bare "not found", and document the `.app` → `.dev/v1` move on the landing page.
+
+### 2026-10-02 · Amazon Bedrock docs · Nova 2 Lite model card contradicts itself on the model id
+
+- **Task:** Confirm the Bedrock model id for the simulator before the first Converse call (Phase 3).
+- **Steps:** Read the Nova 2 Lite model card (docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-lite.html).
+- **Expected:** One id that works in us-east-1.
+- **Actual:** The Regional availability table marks us-east-1 **In-Region: no**, Geo and Global: yes, so only the inference profiles `us.amazon.nova-2-lite-v1:0` / `global.amazon.nova-2-lite-v1:0` work there. The sample code on the same page calls `modelId='amazon.nova-2-lite-v1:0'` with `region_name='us-east-1'`. A third-party catalogue reports the bare id returns a validation error. Our SPEC default was the bare id.
+- **Severity:** minor (caught before the first call)
+- **Workaround:** Default `BEDROCK_MODEL_ID` to `us.amazon.nova-2-lite-v1:0`; the App Runner role must allow the inference profile and the foundation model in its destination Regions (us-east-1, us-east-2, us-west-2).
+- **Suggestion:** Make the sample code use the inference-profile id wherever In-Region is unavailable, and name the profile in the error message when a bare id is not invocable.

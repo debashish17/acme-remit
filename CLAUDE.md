@@ -48,7 +48,8 @@ with it, stop and ask rather than improvise.
 - Express 5, `@modelcontextprotocol/sdk` (latest 1.x), `zod`
 - `better-sqlite3`, plain SQL migrations in `src/db/migrations/*.sql`
 - `@aws-sdk/client-bedrock-runtime` Converse API; model id from
-  `BEDROCK_MODEL_ID` (default `amazon.nova-2-lite-v1:0`, switchable to a
+  `BEDROCK_MODEL_ID` (default `us.amazon.nova-2-lite-v1:0`, the US inference
+  profile Nova 2 Lite needs in us-east-1; switchable to a
   Claude on Bedrock id)
 - Vitest + supertest; GitHub Actions on push (`test`, `lint`, `typecheck`)
 - ESLint flat config + Prettier; `tsup` → `dist/`

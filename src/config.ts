@@ -6,7 +6,8 @@ const ConfigSchema = z.object({
   MCP_BEARER_TOKEN: z
     .string({ error: "is required" })
     .min(16, "must be at least 16 characters (use a long random string)"),
-  BEDROCK_MODEL_ID: z.string().min(1).default("amazon.nova-2-lite-v1:0"),
+  // Nova 2 Lite has no in-Region endpoint in us-east-1: use the US inference profile.
+  BEDROCK_MODEL_ID: z.string().min(1).default("us.amazon.nova-2-lite-v1:0"),
   AWS_REGION: z.string().min(1).default("us-east-1"),
   RATES_URL: z.url().default("https://api.frankfurter.dev/v1"),
   DB_PATH: z.string().min(1).default("./data/acme-remit.db"),

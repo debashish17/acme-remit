@@ -9,7 +9,7 @@ describe("parseConfig", () => {
     expect(cfg).toEqual({
       PORT: 3000,
       MCP_BEARER_TOKEN: TOKEN,
-      BEDROCK_MODEL_ID: "amazon.nova-2-lite-v1:0",
+      BEDROCK_MODEL_ID: "us.amazon.nova-2-lite-v1:0",
       AWS_REGION: "us-east-1",
       RATES_URL: "https://api.frankfurter.dev/v1",
       DB_PATH: "./data/acme-remit.db",
