@@ -52,6 +52,16 @@ pnpm dev
 
 `pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
 
+### Run with Docker
+
+```bash
+docker build -t acme-remit .
+docker run -p 8080:8080 -e MCP_BEARER_TOKEN=<long-random-string> -e SIM_ACCESS_CODE=<code> acme-remit
+# MCP endpoint: POST http://127.0.0.1:8080/mcp · health: GET /health
+```
+
+The image is multi-stage on `node:22-alpine`, runs as the non-root `node` user, migrates and loads the demo seed into an empty database on start, and reads all configuration from the environment (see `.env.example`). Bedrock calls from `/sim/chat` need AWS credentials in the environment or an instance role.
+
 ### Check the protocol with curl
 
 ```bash

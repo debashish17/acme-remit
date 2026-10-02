@@ -1,0 +1,19 @@
+# Keep the build context to what the Dockerfile copies; never send secrets or local state.
+.git
+.github
+.vscode
+.idea
+node_modules
+dist
+coverage
+data
+*.db
+*.db-*
+*.log
+.env
+.env.*
+tests
+docs
+*.md
+Dockerfile
+.dockerignore
