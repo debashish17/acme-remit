@@ -192,30 +192,38 @@ Resources:
           - Effect: Allow
             Principal: { Service: tasks.apprunner.amazonaws.com }
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: bedrock-converse-one-model
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - bedrock:InvokeModel
-                  - bedrock:InvokeModelWithResponseStream
-                Resource:
-                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
-                  - !Sub "arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/${FoundationModelId}"
-                  - !Sub "arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/${FoundationModelId}"
-                  - !Sub "arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/${FoundationModelId}"
-        - PolicyName: read-own-secrets
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource:
-                  - !Ref McpBearerTokenSecret
-                  - !Ref SimAccessCodeSecret
-                  - !Ref DevControlsCodeSecret
+      # Managed, not inline (Well-Architected SEC-2.3/3.2/3.4); referenced here so the role exists
+      # with its permissions before App Runner first uses it.
+      ManagedPolicyArns:
+        - !Ref AppRunnerInstancePolicy
+
+  AppRunnerInstancePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Permissions of AppRunnerInstanceRole, kept as a customer-managed policy.
+    Properties:
+      Description: Acme Remit runtime - Converse on one Bedrock model, read its own three secrets.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BedrockConverseOneModel
+            Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+              - bedrock:InvokeModelWithResponseStream
+            Resource:
+              - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
+              - !Sub "arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/${FoundationModelId}"
+              - !Sub "arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/${FoundationModelId}"
+              - !Sub "arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/${FoundationModelId}"
+          - Sid: ReadOwnSecrets
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource:
+              - !Ref McpBearerTokenSecret
+              - !Ref SimAccessCodeSecret
+              - !Ref DevControlsCodeSecret
 
   # ---------------------------------------------------------------- App Runner service
   SingleInstanceScaling:
@@ -325,45 +333,50 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
                 token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/${GitHubBranch}"
-      Policies:
-        - PolicyName: push-image
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:BatchGetImage
-                  - ecr:CompleteLayerUpload
-                  - ecr:DescribeImages
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:InitiateLayerUpload
-                  - ecr:PutImage
-                  - ecr:UploadLayerPart
-                Resource: !GetAtt ImageRepository.Arn
-        - PolicyName: deploy-service
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: apprunner:ListServices
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - apprunner:DescribeService
-                  - apprunner:ListOperations
-                  - apprunner:StartDeployment
-                Resource: !Sub "arn:${AWS::Partition}:apprunner:${AWS::Region}:${AWS::AccountId}:service/${AWS::StackName}/*"
-        - PolicyName: read-bearer-for-latency-check
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource: !Ref McpBearerTokenSecret
+      ManagedPolicyArns:
+        - !Ref GitHubDeployPolicy
+
+  GitHubDeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Permissions of GitHubDeployRole, kept as a customer-managed policy.
+    Properties:
+      Description: Acme Remit CI deploy - push to one ECR repo, deploy one App Runner service, read the bearer secret.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcrLogin
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: PushImage
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:DescribeImages
+              - ecr:GetDownloadUrlForLayer
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+            Resource: !GetAtt ImageRepository.Arn
+          - Sid: FindService
+            Effect: Allow
+            Action: apprunner:ListServices
+            Resource: "*"
+          - Sid: DeployService
+            Effect: Allow
+            Action:
+              - apprunner:DescribeService
+              - apprunner:ListOperations
+              - apprunner:StartDeployment
+            Resource: !Sub "arn:${AWS::Partition}:apprunner:${AWS::Region}:${AWS::AccountId}:service/${AWS::StackName}/*"
+          - Sid: ReadBearerForLatencyCheck
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref McpBearerTokenSecret
 
   # ---------------------------------------------------------------- cost guard
   MonthlyBudget:
