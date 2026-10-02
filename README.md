@@ -54,9 +54,17 @@ pnpm dev
 
 ### The simulator
 
-Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. Hold the orb, the mic button or Space to talk (Chrome or Edge), or type. **Play demo** steps through the scripted beats one at a time. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens cut to their prefix. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret. `/sim/chat` calls Bedrock, so it needs AWS credentials (for example `AWS_PROFILE=<profile> pnpm dev`).
+Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. Talk with the orb, the mic button or Space (Chrome or Edge): hold while you speak, or tap once and it listens until you pause. Or type. **Play demo** steps through the scripted beats one at a time. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens cut to their prefix. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret. `/sim/chat` calls Bedrock, so it needs AWS credentials (for example `AWS_PROFILE=<profile> pnpm dev`).
 
-For recording, `/?dev=1` adds dev controls (advance the ticker, release the held transfer, fire a rate alert, reset the demo data). They need `DEV_CONTROLS_CODE`, and `/dev/*` answers 404 when it is unset. Press H to hide the panels.
+For recording, `/?dev=1` adds dev controls (advance the ticker, release the held transfer, fire a rate alert, reset the demo data). They need `DEV_CONTROLS_CODE`, and `/dev/*` answers 404 when it is unset. With the dev code entered, chat turns skip the per-IP limit (the daily Bedrock cap still applies). Press H to hide the panels.
+
+### Conversation evals
+
+```bash
+node --env-file=.env scripts/eval.mjs --runs 3   # or --only script,spoken,safety, --verbose
+```
+
+This plays whole conversations through `/sim/chat` against a running server: real Bedrock, real `/mcp` round trips, a fresh seed for each. There are three: the demo script word for word, the same journey as speech recognition delivers it ("mom", numbers in words, a question and a change mid-confirmation), and consent edge cases. Each turn is checked for the tools called and not called, refusals, word-for-word read-backs and cancel previews, and words that must not be spoken ("screening", "beneficiary", ids, lists, ISO dates). It uses about 65 Bedrock calls per pass of all three. It resets the demo data, so don't run it while someone is using the simulator.
 
 ### Run with Docker
 

@@ -112,3 +112,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** `aws logout --profile <name>`, delete the `login_session` line from `~/.aws/config`, then `aws login` — no prompt.
 - **Suggestion:** Add `--yes`/`--overwrite` to `aws login`, ask before opening the browser rather than after, trim `\r` from the answer, and have `aws logout` remove `login_session` too.
+
+### 2026-10-02 · Amazon Bedrock prompt caching docs · Nova 2 Lite's explicit caching support is not stated
+
+- **Task:** Cut voice-turn latency in `/sim/chat`. Every Converse call resends about 6,000 tokens of system prompt and tool specs, and a turn makes 2 to 4 calls (5 to 15 s per turn from India).
+- **Steps:** Read the Bedrock user guide "Prompt caching for faster model inference" and the Nova model cards, looking for `cachePoint` support for `us.amazon.nova-2-lite-v1:0`.
+- **Expected:** Nova 2 Lite in the "Supported models, Regions, and explicit caching limits" table, with its minimum tokens and the fields that accept checkpoints, as the Nova Lite (v1) card lists them (`system` and `messages`, 1K minimum, 5 minutes).
+- **Actual:** The table lists only Claude and GPT models. The page says Nova offers implicit caching for all text prompts, and that Nova models "shown as supporting Explicit Prompt Caching in their model cards" also take checkpoints. The Nova 2 Lite pages found by search don't say either way, and the Converse response fields we read (`inputTokens`, `outputTokens`) don't show whether implicit caching hit.
+- **Severity:** minor
+- **Workaround:** None added. We rely on implicit caching and keep the system prompt and tool list byte-identical between calls, so the prefix can match.
+- **Suggestion:** Put every Nova model, including Nova 2, in the explicit-caching table (or say "implicit only"), and document whether `cacheReadInputTokens` reports implicit hits in Converse.
