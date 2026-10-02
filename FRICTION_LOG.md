@@ -102,3 +102,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** Set `PYTHONUTF8=1` (or `PYTHONIOENCODING=utf-8`) before running the command, then the full catalog (114 skills) prints and the exit code is 0.
 - **Suggestion:** Have the CLI write UTF-8 (or fall back to escaped characters) regardless of the console code page, and keep non-ASCII punctuation out of skill descriptions until then.
+
+### 2026-10-02 · AWS CLI 2.37.8 `aws login` · Switching a profile's identity needs an interactive y/n, and `aws logout` doesn't clear it
+
+- **Task:** Move the `acme-remit` profile from the root user to a new IAM user (`debashish`) after creating that user.
+- **Steps:** `aws login --region us-east-1 --profile acme-remit` from a non-interactive agent shell; then the same with `"y" |` piped in (Windows PowerShell 5.1); then `aws logout --profile acme-remit` and `aws login` again.
+- **Expected:** A flag to accept the switch non-interactively, or `aws logout` returning the profile to a clean state.
+- **Actual:** After a successful browser sign-in, the CLI asks `Profile acme-remit is already configured to use session arn:aws:iam::…:root. Do you want to overwrite it …? (y/n):` and with no stdin fails with `aws: [ERROR]: EOF when reading a line` (exit 255). Piping `y` from PowerShell 5.1 sends `y\r\n` and is rejected as `Invalid response`. `aws logout` clears the cached token but leaves `login_session = arn:…:root` in `~/.aws/config`, so the prompt returns. Each failed attempt costs the user another browser sign-in.
+- **Severity:** minor
+- **Workaround:** `aws logout --profile <name>`, delete the `login_session` line from `~/.aws/config`, then `aws login` — no prompt.
+- **Suggestion:** Add `--yes`/`--overwrite` to `aws login`, ask before opening the browser rather than after, trim `\r` from the answer, and have `aws logout` remove `login_session` too.
