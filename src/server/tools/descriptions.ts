@@ -3,7 +3,7 @@
 
 export const TOOL_DESCRIPTIONS = {
   get_rate:
-    "Get today's AED to INR exchange rate for sending money to India, with the 7-day trend. Use when the user asks about the rate, the rupee, or whether now is a good time to send.",
+    "Get today's exchange rate with the 7-day trend. For AED to INR it is Acme's rate for sending money to India; for any other pair of supported currencies it is the mid-market rate, for information only, because Acme sends money only from AED to INR. Use when the user asks about the rate, the rupee or another currency, or whether now is a good time to send.",
   compare_options:
     "Compare what the recipient would receive for a send amount across Acme's payout methods (bank deposit, UPI, cash pickup), including fee and arrival time, and show Acme's rate against the mid-market rate and a typical bank rate. Use when the user asks which option is best or how much will be received.",
   list_beneficiaries:

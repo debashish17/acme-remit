@@ -9,7 +9,7 @@ Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP ser
 | Decision | Choice | Why |
 | --- | --- | --- |
 | Framing | Single provider ("Acme Remit", name TBD), UAE–India corridor, AED to INR | Matches how every real Alexa+ add-on works; one board rate, one backend, no scraping |
-| Rates | Live mid-market from Frankfurter (ECB), cached 15 min; ECB publishes no AED, so AED/INR is USD/INR divided by the CBUAE peg of 3.6725 AED per USD, plus a simulated Acme FX margin; seeded fallback table. Customer sees "our rate" plus the guaranteed receive amount, Wise-style mid shown only in `compare_options` | Realistic pricing model, one dependency, demo never breaks |
+| Rates | Live mid-market from Frankfurter (ECB), cached 15 min; ECB publishes no AED, so AED/INR is USD/INR divided by the CBUAE peg of 3.6725 AED per USD, plus a simulated Acme FX margin; seeded fallback table. Customer sees "our rate" plus the guaranteed receive amount, Wise-style mid shown only in `compare_options`. Every other currency ECB publishes, plus the dollar-pegged Gulf currencies (AED, SAR, QAR, OMR, BHD), can be quoted by `get_rate` as a mid-market rate for information; sending stays AED to INR. | Realistic pricing model, one dependency, demo never breaks |
 | Payout methods | Bank deposit via IMPS (instant), UPI ID (instant), cash pickup (MTSS caps). No economy/express tiers | What UAE exchange houses actually offer; cash pickup brings a real regulatory cap into the demo |
 | Competitor data | None live. `compare_options` shows the mid rate, Acme's rate, and a labelled illustrative typical-bank rate derived from the same mid | Honest, defensible, still reads well aloud |
 | Funding | Saved debit card, charged at confirm; funds received instantly in the mock | Voice cannot take card details; matches per-transfer funding norms |
@@ -56,7 +56,7 @@ Twelve tools, one domain, two money-moving tools behind one gate. The `descripti
 
 | # | Tool | Description (what the model reads) | Writes state |
 | --- | --- | --- | --- |
-| 1 | `get_rate` | Get today's AED to INR exchange rate for sending money to India, with the 7-day trend. Use when the user asks about the rate, the rupee, or whether now is a good time to send. | no |
+| 1 | `get_rate` | Get today's exchange rate with the 7-day trend. For AED to INR it is Acme's rate for sending money to India; for any other pair of supported currencies it is the mid-market rate, for information only, because Acme sends money only from AED to INR. Use when the user asks about the rate, the rupee or another currency, or whether now is a good time to send. | no |
 | 2 | `compare_options` | Compare what the recipient would receive for a send amount across Acme's payout methods (bank deposit, UPI, cash pickup), including fee and arrival time, and show Acme's rate against the mid-market rate and a typical bank rate. Use when the user asks which option is best or how much will be received. | no |
 | 3 | `list_beneficiaries` | List the user's saved recipients: nickname, relationship, bank or UPI, payout method, and when they last received money. Use when the user asks who they can send to. | no |
 | 4 | `resolve_beneficiary` | Find one saved recipient from a name or nickname such as "Mum", "my brother" or "Sunita". Call this before quoting whenever the user names a person. Returns one match, or candidates to ask the user to choose from. Never invents a recipient; new recipients are added in the Acme app. | no |
@@ -72,11 +72,17 @@ Twelve tools, one domain, two money-moving tools behind one gate. The `descripti
 **Inputs and outputs**
 
 ```json
-// 1 get_rate
+// 1 get_rate (from, to: ISO 4217 codes, default AED and INR)
 in:  { "from": "AED", "to": "INR" }
-out: { "corridor": "AE-IN", "pair": "AED/INR", "customer_rate": 23.21, "mid_rate": 23.42, "fx_margin_pct": 0.9,
-       "week_high": 23.55, "week_low": 23.10, "trend": "rupee weakened 0.6% this week",
+out: { "corridor": "AE-IN", "pair": "AED/INR", "sendable": true, "customer_rate": 23.21, "mid_rate": 23.42,
+       "fx_margin_pct": 0.9, "week_high": 23.55, "week_low": 23.10, "trend": "rupee weakened 0.6% this week",
        "as_of": "2026-10-01T09:15:00Z", "source": "ECB via Frankfurter, cached" }
+in:  { "from": "AED", "to": "PHP" }       // any other pair: mid-market, information only
+out: { "pair": "AED/PHP", "sendable": false, "mid_rate": 15.63, "week_high": 15.70, "week_low": 15.52,
+       "trend": "Philippine Peso weakened 0.4% against the UAE Dirham this week", "as_of": "2026-10-01T09:15:00Z",
+       "source": "ECB via Frankfurter, cached; AED at the US dollar peg",
+       "note": "Mid-market rate for information only. Acme sends money from AED to INR only." }
+refused: CURRENCY_NOT_SUPPORTED { currency, supported[] } · RATE_UNAVAILABLE { pair }
 
 // 2 compare_options
 in:  { "send_amount": 2000, "send_currency": "AED" }

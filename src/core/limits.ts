@@ -241,6 +241,10 @@ export class LimitService {
       TRANSFER_NOT_FOUND: "No transfer with that reference was found on your account.",
       CANCEL_WINDOW_CLOSED:
         "Transfers can be cancelled only before they are sent to the payout partner. After that, a recall needs the recipient's consent; Acme support can request one from the app.",
+      CURRENCY_NOT_SUPPORTED:
+        "Rates are available for the currencies with a published ECB reference rate, plus the Gulf currencies tied to the US dollar. Acme sends money from AED to INR only.",
+      RATE_UNAVAILABLE:
+        "The reference rate couldn't be fetched just now. Ask again in a few minutes.",
       ALERT_TARGET_INVALID: "The alert target must be a positive rate, such as 26.5.",
       INTERNAL_ERROR: "Something went wrong on our side. Nothing was charged; try again shortly.",
     };

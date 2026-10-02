@@ -67,6 +67,22 @@ export const FX_MARGIN_BP: Record<string, number> = {
 /** CBUAE peg, fixed since 1997. ECB/Frankfurter publish no AED, so AED/INR is derived from USD/INR. */
 export const AED_PER_USD = 3.6725;
 
+/**
+ * Gulf currencies fixed to the US dollar by their central banks (units per USD). ECB publishes none
+ * of them, so their rates are derived from the USD rates. The Kuwaiti dinar follows a basket, so it
+ * is not here.
+ */
+export const USD_PEGS: Record<string, number> = {
+  AED: AED_PER_USD,
+  SAR: 3.75,
+  QAR: 3.64,
+  OMR: 0.3845,
+  BHD: 0.376,
+};
+
+/** The one corridor Acme sends money in. Every other pair get_rate quotes is for information. */
+export const SENDING_PAIR = "AED/INR";
+
 /** Illustrative "typical bank" benchmark for compare_options, derived from the same mid. */
 export const BENCHMARK = { name: "typical bank", marginBp: 250, feeMinor: 2500 };
 
