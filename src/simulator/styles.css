@@ -1522,3 +1522,23 @@ body.noproto .proto {
     opacity: 0.45;
   }
 }
+
+/* voice picker */
+.tb.sel {
+  padding: 0 6px 0 12px;
+}
+.tb.sel select {
+  max-width: 190px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: 0;
+}
+.tb.sel select option,
+.tb.sel select optgroup {
+  background: #10141c;
+  color: #f3f6f8;
+}

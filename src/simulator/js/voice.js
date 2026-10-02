@@ -89,21 +89,40 @@ export function stopListening() {
 
 /* ---------- speaking ---------- */
 let pickedVoice = null;
+let preferred = ""; // a voice name chosen in the picker; "" picks the best Indian English voice
+
+/** English voices this browser offers, Indian English and natural-sounding ones first. */
+export function browserVoices() {
+  if (!voice.canSpeak) return [];
+  const rank = (v) =>
+    (/en-IN/i.test(v.lang) ? 0 : /en-GB/i.test(v.lang) ? 2 : 4) +
+    (/natural|online|neural/i.test(v.name) ? 0 : 1);
+  return speechSynthesis
+    .getVoices()
+    .filter((v) => /^en/i.test(v.lang))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+export function setPreferredVoice(name) {
+  preferred = name || "";
+  pickedVoice = null;
+}
+/** Calls fn when the browser's voice list loads or changes (it arrives late in Chrome). */
+export function onVoicesChanged(fn) {
+  if (voice.canSpeak) speechSynthesis.addEventListener("voiceschanged", fn);
+}
 function pickVoice() {
   if (pickedVoice) return pickedVoice;
   const vs = speechSynthesis.getVoices();
   pickedVoice =
-    vs.find((v) => /en-IN/i.test(v.lang)) ||
-    vs.find((v) => /en-GB/i.test(v.lang) && /female|libby|sonia|hazel|google/i.test(v.name)) ||
+    (preferred && vs.find((v) => v.name === preferred)) ||
+    browserVoices()[0] ||
     vs.find((v) => /^en/i.test(v.lang)) ||
     null;
   return pickedVoice;
 }
-if (voice.canSpeak)
-  speechSynthesis.onvoiceschanged = () => {
-    pickedVoice = null;
-    pickVoice();
-  };
+onVoicesChanged(() => {
+  pickedVoice = null;
+});
 
 /**
  * Speaks text. onWord(charIndex) fires at each word as it is spoken: from the engine's boundary

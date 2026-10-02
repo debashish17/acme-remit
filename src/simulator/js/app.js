@@ -5,7 +5,17 @@
 import { api } from "./api.js";
 import * as C from "./cards.js";
 import { createOrb } from "./orb.js";
-import { listen, micLevel, speak, stopListening, stopSpeaking, voice } from "./voice.js";
+import {
+  browserVoices,
+  listen,
+  micLevel,
+  onVoicesChanged,
+  setPreferredVoice,
+  speak,
+  stopListening,
+  stopSpeaking,
+  voice,
+} from "./voice.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -124,6 +134,27 @@ $("#protoBtn").addEventListener("click", () => setProto(body.classList.contains(
 $("#hideBar").addEventListener("click", () => setFocus(!body.classList.contains("focus")));
 setTheme(local.get("acme.theme", "blue") === "mono" ? "mono" : "blue");
 setVoice(local.get("acme.voice", "on") !== "off");
+
+/* ---------- voice picker ---------- */
+const voiceSel = $("#voiceSel");
+function fillVoices() {
+  const chosen = local.get("acme.voiceName", "");
+  const voices = browserVoices();
+  voiceSel.replaceChildren(new Option("Auto voice", ""));
+  for (const v of voices) {
+    const name = v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s*-\s*English.*$/, "");
+    voiceSel.append(new Option(`${name} · ${v.lang}`, v.name));
+  }
+  voiceSel.value = voices.some((v) => v.name === chosen) ? chosen : "";
+  setPreferredVoice(voiceSel.value);
+}
+fillVoices();
+onVoicesChanged(fillVoices);
+voiceSel.addEventListener("change", () => {
+  local.set("acme.voiceName", voiceSel.value);
+  setPreferredVoice(voiceSel.value);
+  if (!S.busy && !voice.muted) void speak("Hi, I'm your Acme Remit assistant.");
+});
 setProto(local.get("acme.proto", "on") !== "off");
 
 /* ---------- caption under the orb ---------- */
