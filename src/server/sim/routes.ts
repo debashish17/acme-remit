@@ -63,8 +63,10 @@ export function simRouter(deps: SimDeps): Router {
   });
 
   // The ledger strip polls this; `since` returns alerts fired after that time, for toasts.
-  router.get("/state", new RateLimiter(600, 10 * 60_000).middleware(), (req, res) => {
+  router.get("/state", new RateLimiter(600, 10 * 60_000).middleware(), async (req, res) => {
     const since = typeof req.query.since === "string" ? req.query.since : new Date().toISOString();
+    // On failure the strip shows a dash; get_rate reports the problem when asked.
+    const rate = await todaysRate(core).catch(() => null);
     const latest = core.ledger.track(DEMO_USER_ID);
     const quote = core.quotes.latestOpen(DEMO_USER_ID);
     res.json(
@@ -82,6 +84,7 @@ export function simRouter(deps: SimDeps): Router {
             }
           : null,
         limits: core.limits.remaining(DEMO_USER_ID),
+        rate,
         alerts: core.alerts.firedSince(DEMO_USER_ID, since),
         assistant_calls_left_today: budget.remaining,
       }),
@@ -119,4 +122,10 @@ export function devRouter(deps: SimDeps): Router {
   });
 
   return router;
+}
+
+async function todaysRate(core: Core) {
+  const mid = await core.rates.getMid("AED", "INR");
+  const customer = await core.rates.getCustomerRate("AED", "INR");
+  return { customer_rate: customer.rate, mid_rate: mid.rate, as_of: mid.asOf };
 }

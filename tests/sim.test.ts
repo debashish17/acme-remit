@@ -302,6 +302,11 @@ describe("GET /sim/state", () => {
     expect(res.body.limits.monthly).toMatchObject({ remaining: 3500, resets_on: "2026-11-01" });
     expect(res.body.open_quote).toBeNull();
     expect(res.body.alerts).toEqual([]);
+    expect(res.body.rate).toMatchObject({
+      customer_rate: expect.any(Number),
+      mid_rate: expect.any(Number),
+    });
+    expect(res.body.rate.customer_rate).toBeLessThan(res.body.rate.mid_rate);
 
     await core.alerts.set(USER_ID, "AED/INR", 26.5, "above");
     await sim(app).dev("/dev/alert");
