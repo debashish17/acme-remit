@@ -94,6 +94,56 @@ const MSG = {
   rounds: "Sorry, I couldn't finish that. Could you say it again, a bit more simply?",
 };
 
+/**
+ * Every Converse call resends the whole conversation, so tool results from older turns are cut
+ * down before sending: long strings (read-backs, explanations), deep nesting and long lists go;
+ * ids, tokens, refs, statuses and amounts stay, so the model can still refer back to them. The
+ * last two user turns go in full: a "yes" needs the read-back turn before it intact. The stored
+ * history is not changed.
+ */
+export function compactHistory(messages: Message[], fullTurns = 2): Message[] {
+  const turnStarts = messages.flatMap((m, i) =>
+    m.role === "user" && m.content?.some((b) => b.text !== undefined) ? [i] : [],
+  );
+  const keepFrom = turnStarts.at(-fullTurns) ?? 0;
+  return messages.map((m, i) =>
+    i >= keepFrom || m.role !== "user"
+      ? m
+      : {
+          ...m,
+          content: (m.content ?? []).map((b) =>
+            b.toolResult
+              ? {
+                  toolResult: {
+                    ...b.toolResult,
+                    content: (b.toolResult.content ?? []).map((c) =>
+                      c.json === undefined
+                        ? c
+                        : { json: compactResult(c.json) as Record<string, never> },
+                    ),
+                  },
+                }
+              : b,
+          ),
+        },
+  );
+}
+
+/** Primitive fields, strings up to 120 characters, two levels deep, lists of at most 5. */
+export function compactResult(value: unknown, depth = 0): unknown {
+  if (Array.isArray(value)) return value.slice(0, 5).map((v) => compactResult(v, depth + 1));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "string" && v.length > 120) continue;
+      if (v && typeof v === "object" && depth >= 2) continue;
+      out[k] = compactResult(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 /** Bedrock tool specs from the MCP tools/list result. */
 export function toBedrockTools(tools: McpTool[]): Tool[] {
   return tools.map((t) => {
@@ -189,7 +239,7 @@ export class ChatService {
         out = await this.opts.converse({
           modelId: this.opts.modelId,
           system: [{ text: this.opts.systemPrompt }],
-          messages: convo.messages,
+          messages: compactHistory(convo.messages),
           toolConfig: { tools },
           inferenceConfig: { maxTokens: this.maxTokens, temperature: 0.2 },
         });

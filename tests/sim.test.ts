@@ -1,7 +1,11 @@
 import { once } from "node:events";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { ConverseCommandInput, ConverseCommandOutput } from "@aws-sdk/client-bedrock-runtime";
+import type {
+  ConverseCommandInput,
+  ConverseCommandOutput,
+  Message,
+} from "@aws-sdk/client-bedrock-runtime";
 import type { Express } from "express";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +13,13 @@ import { createCore, type Core } from "../src/core/index.js";
 import { MockCard } from "../src/core/ledger.js";
 import { seed, USER_ID } from "../src/db/seed.js";
 import { createApp } from "../src/server/app.js";
-import { ChatService, toBedrockTools, type ConverseFn } from "../src/server/sim/chat.js";
+import {
+  ChatService,
+  compactHistory,
+  compactResult,
+  toBedrockTools,
+  type ConverseFn,
+} from "../src/server/sim/chat.js";
 import { DailyBudget } from "../src/server/sim/guards.js";
 import { SYSTEM_PROMPT } from "../src/server/sim/prompt.js";
 import { McpRelay, redactTokens } from "../src/server/sim/relay.js";
@@ -473,5 +483,56 @@ describe("consent guard", () => {
     await sim(app).chat("Yes", first.body.conversation_id);
     expect(core.ledger.track(USER_ID, "ACM-240120")).toMatchObject({ status: "CANCELLED" });
     expect(card.refunds).toHaveLength(1);
+  });
+});
+
+describe("history compaction", () => {
+  const long = "x".repeat(200);
+  const result = (json: Record<string, unknown>) => ({
+    role: "user" as const,
+    content: [{ toolResult: { toolUseId: "t", content: [{ json }], status: "success" as const } }],
+  });
+  const userText = (text: string) => ({ role: "user" as const, content: [{ text }] });
+  const assistant = { role: "assistant" as const, content: [{ text: "ok" }] };
+
+  it("keeps ids, tokens and amounts; drops long text, deep nesting and long lists", () => {
+    expect(
+      compactResult({
+        confirmation_token: "ct_" + "a".repeat(43),
+        quote_id: "q_1",
+        send_amount: 2000,
+        read_back: long,
+        timeline: [1, 2, 3, 4, 5, 6, 7],
+        deep: { a: { b: { c: 1 } } },
+      }),
+    ).toEqual({
+      confirmation_token: "ct_" + "a".repeat(43),
+      quote_id: "q_1",
+      send_amount: 2000,
+      timeline: [1, 2, 3, 4, 5],
+      deep: { a: {} },
+    });
+  });
+
+  it("sends the last two user turns in full and compacts older tool results", () => {
+    const messages = [
+      userText("turn 1"),
+      result({ read_back: long, ref: "ACM-1" }),
+      assistant,
+      userText("turn 2"),
+      result({ read_back: long }),
+      assistant,
+      userText("turn 3"),
+      result({ read_back: long }),
+    ] as unknown as Message[];
+    const out = compactHistory(messages);
+    const json = (i: number) => out[i]?.content?.[0]?.toolResult?.content?.[0]?.json;
+    expect(json(1)).toEqual({ ref: "ACM-1" });
+    expect(json(4)).toEqual({ read_back: long });
+    expect(json(7)).toEqual({ read_back: long });
+    expect(messages[1]?.content?.[0]?.toolResult?.content?.[0]?.json).toEqual({
+      read_back: long,
+      ref: "ACM-1",
+    }); // stored history untouched
   });
 });
