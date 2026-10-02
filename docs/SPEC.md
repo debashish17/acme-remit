@@ -18,6 +18,7 @@ Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP ser
 | Recipients | Resolved by nickname server-side via `resolve_beneficiary`; adding or editing recipients is out of scope | Adding payees by voice is a fraud surface; say so on purpose |
 | Compliance | Purpose of remittance captured (family maintenance default); screening hold modelled as ON\_HOLD with an RFI the customer can act on; reason for a hit is never disclosed (tipping-off) | Shows real AML behaviour without inventing internals |
 | State changes | Only `confirm_transfer` and `cancel_transfer` move money, both behind the same read-back-and-token gate; `set_rate_alert` writes alert state | The asymmetry is the headline safety claim |
+| Step-up | Before money moves, `confirm_transfer` texts a 6-digit one-time code to the registered phone (simulated SMS) and charges the card only on a second call carrying it; 3 wrong tries void the confirmation. Cancels need no code (the refund goes to the same card) | Mirrors 3-D Secure on card payments; the code never appears in a tool result, so the model cannot approve a payment on its own |
 | Stack | TypeScript, Express, `@modelcontextprotocol/sdk`, SQLite (better-sqlite3), AWS App Runner us-east-1, Bedrock in the simulator | Lowest ops for a solo build, satisfies AWS Builder |
 
 Open item: the product name. Placeholder `acme-remit` in code until chosen.
@@ -62,7 +63,7 @@ Twelve tools, one domain, two money-moving tools behind one gate. The `descripti
 | 4 | `resolve_beneficiary` | Find one saved recipient from a name or nickname such as "Mum", "my brother" or "Sunita". Call this before quoting whenever the user names a person. Returns one match, or candidates to ask the user to choose from. Never invents a recipient; new recipients are added in the Acme app. | no |
 | 5 | `quote_transfer` | Price a transfer: fee, locked rate, guaranteed receive amount in rupees, arrival time, and any limit warnings or document requirements for the purpose. Does not move money. Returns a quote\_id with rate and fee held for 30 minutes. | quote row |
 | 6 | `prepare_transfer` | Turn a quote into a confirmation request. Returns the exact sentence to read back to the user and a single-use confirmation\_token valid for 5 minutes. Does not move money. Call confirm\_transfer only after the user explicitly agrees to the read-back. | token row |
-| 7 | `confirm_transfer` | Execute a prepared transfer using its confirmation\_token: charges the saved debit card and submits the transfer. Fails if the token is unknown, expired, already used, or if limits changed since the quote. | **transfer, card charge** |
+| 7 | `confirm_transfer` | Execute a prepared transfer in two calls, after the user agrees to the read-back. Called with the confirmation\_token alone, it texts a 6-digit one-time code to the user's registered phone and returns STEP\_UP\_REQUIRED; nothing is sent yet. Ask the user to read the code out, then call again with the same confirmation\_token and otp: that charges the saved debit card and submits the transfer. The code is never in a tool result, so never guess it. Fails if the token is unknown, expired or used, if the code is wrong or expired, or if limits changed since the quote. | **transfer, card charge** |
 | 8 | `track_transfer` | Get the status of a transfer by reference or the most recent one: current stage, timeline, UTR once paid out, whether it can still be cancelled, and any action the user must take if it is under review. Use when the user asks where their money is or whether it was credited. | no |
 | 9 | `cancel_transfer` | Cancel a transfer that has not yet been sent to the payout partner. Without a cancel\_token it returns a preview (refund amount, timing) and a single-use cancel\_token valid for 5 minutes; with the token it cancels and refunds send amount and fee to the card. Call with the token only after the user explicitly agrees to the preview. Fails once the transfer has been sent; recalls need the recipient's consent and are handled by support. | **transfer, refund** |
 | 10 | `get_transfer_history` | List past transfers for the last N months or to one recipient, including cancelled, returned or refunded ones, with totals and how much of each limit has been used this month. | no |
@@ -123,11 +124,16 @@ in:  { "quote_id": "q_7f3a" }
 out: { "confirmation_token": "ct_9b2e...", "expires_at": "...+5m",
        "read_back": "Send 2,000 dirhams to Mum, Sunita Nair at HDFC Bank ending 4421, for family maintenance. Fee 15 dirhams, rate 23.21, charged to your card ending 8812. She receives 46,070 rupees, guaranteed, within minutes. Shall I go ahead?" }
 
-// 7 confirm_transfer
+// 7 confirm_transfer: two calls (step-up, like 3-D Secure)
 in:  { "confirmation_token": "ct_9b2e..." }
+out: { "refused": { "code": "STEP_UP_REQUIRED", "method": "sms_otp", "sent_to": "phone ending 4471",
+       "expires_at": "...+5m", "attempts_left": 3, "resolution": "Nothing has been sent yet. A 6-digit code was texted ..." } }
+     // SMS to the registered phone: "Acme: 482913 is your code to send 2,000 dirhams to Mum. ..."
+in:  { "confirmation_token": "ct_9b2e...", "otp": "482913" }
 out: { "transfer_ref": "ACM-240133", "status": "SCREENING", "receive_amount": 46070, "eta": "within minutes",
        "receipt": "Receipt and FIRA will be available in the Acme app once paid out." }
-  or { "refused": { "code": "TOKEN_EXPIRED" | "TOKEN_USED" | "TOKEN_UNKNOWN" | "LIMIT_EXCEEDED" | "CARD_DECLINED", "resolution": "..." } }
+  or { "refused": { "code": "OTP_INVALID" (attempts_left) | "OTP_EXPIRED" | "OTP_LOCKED" | "TOKEN_EXPIRED" | "TOKEN_USED"
+       | "TOKEN_UNKNOWN" | "LIMIT_EXCEEDED" | "CARD_DECLINED", "resolution": "..." } }
 
 // 8 track_transfer
 in:  { "transfer_ref": "ACM-240133" }   or   { "latest": true }
@@ -256,7 +262,7 @@ All monetary values are integers in minor units internally (fils, paise) and for
 
 ## Data model and seed data
 
-One SQLite file, eight tables, reset to the seed on every `npm run seed` so each demo take starts identical.
+One SQLite file, ten tables after migrations, reset to the seed on every `npm run seed` so each demo take starts identical.
 
 ```sql
 CREATE TABLE users        (id TEXT PRIMARY KEY, name TEXT, country TEXT, kyc_tier TEXT, card_last4 TEXT);
@@ -288,13 +294,23 @@ ALTER TABLE confirmations ADD COLUMN transfer_ref TEXT;
 CREATE INDEX confirmations_quote ON confirmations (quote_id);
 CREATE INDEX transfers_user_created ON transfers (user_id, created_at);
 CREATE INDEX transfer_events_ref ON transfer_events (ref, at);
+
+-- 0003_step_up.sql
+-- One-time codes before money moves (salted SHA-256, bound to the ct_ token hash and caller),
+-- and the simulated phone that receives them.
+ALTER TABLE users ADD COLUMN phone_last4 TEXT;
+CREATE TABLE step_up_challenges (id TEXT PRIMARY KEY, token TEXT NOT NULL, session_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0, verified_at TEXT);
+CREATE TABLE sms_outbox (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, to_last4 TEXT NOT NULL,
+  body TEXT NOT NULL, created_at TEXT NOT NULL);
 ```
 
 **Seed**
 
 | Entity | Values |
 | --- | --- |
-| User | `usr_priya`, Priya Nair, Dubai (AE), tier Verified (Emirates ID), debit card \*\*\*\*8812 |
+| User | `usr_priya`, Priya Nair, Dubai (AE), tier Verified (Emirates ID), debit card \*\*\*\*8812, phone \*\*\*\*4471 |
 | `ben_01` | Mum, Sunita Nair, mother, bank deposit, HDFC Bank, IFSC HDFC0001234, acct \*\*\*\*4421, savings, Chandigarh, Punjab, name verified, purpose family\_maintenance, aliases `["mum","mom","mother","amma","sunita"]` |
 | `ben_02` | Rahul, Rahul Nair, brother, UPI `rahul.nair@okhdfc`, Pune, Maharashtra, name verified, purpose family\_maintenance, aliases `["rahul","brother","bhai"]` |
 | `ben_03` | Rahul (college), Rahul Menon, friend, bank deposit, ICICI Bank, acct \*\*\*\*3302, Kochi, Kerala, name verified, purpose gift, aliases `["rahul menon","college rahul"]` |
@@ -341,13 +357,14 @@ Consumer-facing words win in anything the model speaks: recipient not beneficiar
 
 ## Quote and token lifecycle, and the tests to write
 
-A transfer needs three calls in order, and each step can only be used once; the tests below are the evidence judges look for in the repo.
+A transfer needs four calls in order (quote, prepare, confirm, confirm with the code), and each step can only be used once; the tests below are the evidence judges look for in the repo.
 
 **Rules**
 
 1. `quote_transfer` writes a quote with status `open`, rate and fee locked for 30 min, and the guaranteed receive amount. A quote is priced once; `confirm` never re-fetches the rate.
 2. `prepare_transfer` requires an `open`, unexpired quote. It moves the quote to `prepared`, issues one random 32-byte token (base64url) bound to the quote and the authenticated caller (stateless transport, so no MCP session id), expiry now + 5 min. Calling prepare again on the same quote invalidates the previous token.
 3. `confirm_transfer` requires a token that exists, is unused, unexpired, and was issued to the same authenticated caller. It re-runs the limit check, then in one SQLite transaction: marks the token used, marks the quote `consumed`, records the mock card charge, inserts the transfer as `FUNDS_RECEIVED` and immediately `SCREENING`, and writes both timeline events.
+3a. Step-up. `confirm_transfer` with a valid token and no `otp` changes nothing in the ledger: it texts a 6-digit code to the user's registered phone, naming the amount and recipient, and refuses `STEP_UP_REQUIRED` with `sent_to`, `expires_at` and `attempts_left`. The code is stored as a salted SHA-256 hash bound to the token's hash and the caller, lasts 5 minutes and never outlives the token, and is never logged or returned by any tool. Only a second call with the same token and the right `otp` runs rule 3. A wrong code refuses `OTP_INVALID` with `attempts_left`; the third voids the token (`OTP_LOCKED`); an expired code refuses `OTP_EXPIRED`; at most 3 codes are sent per token. The simulator masks the code in the protocol panel to its first two digits.
 4. The ticker advances `SCREENING` → `SENT_TO_PARTNER` → `PAID_OUT` and generates a UTR on payout. `ON_HOLD`, `RETURNED` and `CANCELLED` are set as follows: CANCELLED only by cancel\_transfer, and only while the transfer is in CREATED, FUNDS\_RECEIVED, SCREENING or ON\_HOLD, refunding the amount charged (the send amount, which includes the fee) to the card and releasing the amount from the monthly and daily counters; ON\_HOLD and RETURNED only by seed data or a dev control. No tool recalls.
 5. Any rejected confirm is logged with the reason and the token prefix, never the full token.
 6. A transfer in `ON_HOLD` reports `customer_label: "Under review"` and the RFI if one exists; it never reports a screening reason.
@@ -357,6 +374,7 @@ A transfer needs three calls in order, and each step can only be used once; the 
 | File | Cases |
 | --- | --- |
 | `confirm.test.ts` | unknown token refused · expired token refused · reused token refused · token from another caller refused · second prepare invalidates first token · happy path consumes exactly once |
+| `stepup.test.ts` | first call texts a code naming amount and recipient and moves no money · the code is in no tool result · the right code (spaced, as spoken) confirms once, a replay is refused · wrong codes count down and the third voids the token · a new code replaces the old, capped at the token's expiry · at most 3 codes per token · expired code refused · code before any was sent, another caller's token, another payment's code refused · the code is never logged or stored in the clear |
 | `limits.test.ts` | per-transaction cap · daily cap across two quotes · monthly cap at exactly the limit with reset date in the refusal · new-recipient first-transfer cap · source-of-funds threshold · cash pickup per-transaction, per-year count and 50,000 INR caps · NEAR\_MONTHLY\_LIMIT warning below 25% remaining · explanation text per code |
 | `quotes.test.ts` | locked rate equals rate at quote time even after cache refresh · fee by payout method · receive\_amount = (send\_amount − fee) × rate, rounded down to the paisa · expired quote cannot be prepared · business purpose refused · property purpose refused with document resolution · gift to non-relative warns |
 | `beneficiaries.test.ts` | "Mum", "mother", "amma" resolve to ben\_01 · "my account" resolves to ben\_04 · "Rahul" is ambiguous with two candidates · unknown name returns not\_found with the app hint · never creates a record |
@@ -387,6 +405,7 @@ The simulator stands in for Alexa+ because Alexa+ is not available in India. Its
 | Conversation column | Chat bubbles with a mic button; the Alexa-style blue light bar while listening (no Amazon logos or wordmarks) |
 | Protocol panel (collapsible, right) | Live JSON-RPC: each request and response, the negotiated `protocolVersion`, latency per call in ms |
 | Ledger strip (top) | Balance, open quote, latest transfer status; updates live so the ticker is visible |
+| Phone (text messages) | The customer's simulated phone: step-up codes arrive as an SMS toast, which the user reads out |
 | Banner | "Simulated ledger: no real funds move. Mid-market rates are live; Acme pricing is simulated." always visible |
 | Dev controls (hidden behind `?dev=1`) | Fire alert, advance ticker, release the held transfer, reset seed: used only while recording |
 
@@ -483,7 +502,7 @@ Everything Devpost asks for, mapped to where it lives in the repo, plus the vide
 | 0:00–0:20 | "Acme Remit is a self-hosted MCP server that lets Alexa+ handle UAE-to-India remittances safely. Everything runs on a simulated ledger; mid-market rates are live; the tool contract is production-shaped." | Architecture drawing, 5 s, then the simulator |
 | 0:20–0:38 | "What's the rupee at today?" → rate and trend. "Is that better than last week?" | Chat + protocol panel showing `get_rate` |
 | 0:38–0:55 | "How much would Mum get for 2,000 dirhams?" → bank deposit vs UPI vs cash pickup, and vs a typical bank | `compare_options` in the bubble |
-| 0:55–1:28 | "Send 2,000 dirhams to Mum." → quote → read-back with purpose, card and guaranteed rupees → "Yes." → confirmed | Panel shows `prepare_transfer` token then `confirm_transfer`; ledger strip shows SCREENING |
+| 0:55–1:28 | "Send 2,000 dirhams to Mum." → quote → read-back with purpose, card and guaranteed rupees → "Yes." → code texted to the phone → user reads it out → confirmed | Panel shows `prepare_transfer` token then `confirm_transfer`; ledger strip shows SCREENING |
 | 1:28–1:42 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal JSON in the panel: the server enforced it, not the model |
 | 1:42–1:55 | "Send 500 to Rahul." → "Which Rahul, your brother or Rahul Menon?" | Candidates from `resolve_beneficiary` |
 | 1:55–2:10 | "Where's Mum's money?" → paid out, UTR read aloud. "And the one to my NRE account?" → under review, upload updated Emirates ID in the app | Ticker reached PAID\_OUT; RFI shown, no reason given |

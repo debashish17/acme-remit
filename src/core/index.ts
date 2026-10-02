@@ -7,6 +7,7 @@ import { LimitService } from "./limits.js";
 import { VERIFIED_TIER, type TierConfig } from "./policy.js";
 import { QuoteService } from "./quotes.js";
 import { RatesService } from "./rates.js";
+import { OutboxSms, StepUpService, type SmsGateway } from "./stepup.js";
 import { consoleLogger, type Clock, type Logger } from "./types.js";
 
 /** Composition root for the core services. No transport, no timers: callers start those. */
@@ -18,6 +19,10 @@ export interface CoreDeps {
   now?: Clock;
   logger?: Logger;
   card?: CardGateway;
+  /** Where step-up codes go; defaults to the simulated phone (sms_outbox). */
+  sms?: SmsGateway;
+  /** Test seam: the next step-up code. */
+  newOtp?: () => string;
   tier?: TierConfig;
   /** TICKER_MS: time in each ticker-driven status. */
   stepMs?: number;
@@ -57,10 +62,20 @@ export function createCore(deps: CoreDeps) {
     ...(deps.card ? { card: deps.card } : {}),
     ...(deps.stepMs ? { stepMs: deps.stepMs } : {}),
   });
+  const outbox = new OutboxSms(db, now);
+  const stepUp = new StepUpService({
+    db,
+    gate,
+    ledger,
+    sms: deps.sms ?? outbox,
+    now,
+    logger,
+    ...(deps.newOtp ? { newCode: deps.newOtp } : {}),
+  });
   const beneficiaries = new BeneficiaryService(db);
   const alerts = new AlertService(db, rates, now);
 
-  return { db, rates, limits, gate, quotes, ledger, beneficiaries, alerts };
+  return { db, rates, limits, gate, quotes, ledger, stepUp, outbox, beneficiaries, alerts };
 }
 
 export type Core = ReturnType<typeof createCore>;

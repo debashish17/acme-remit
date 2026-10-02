@@ -17,7 +17,7 @@ const count = (table: string) =>
   (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 
 describe("migrate", () => {
-  it("creates the nine SPEC.md tables and is idempotent", () => {
+  it("creates the eleven SPEC.md tables and is idempotent", () => {
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as {
         name: string;
@@ -30,6 +30,8 @@ describe("migrate", () => {
       "quotes",
       "rates_cache",
       "rates_history",
+      "sms_outbox",
+      "step_up_challenges",
       "transfer_events",
       "transfers",
       "users",

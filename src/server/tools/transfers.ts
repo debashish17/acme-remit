@@ -78,14 +78,24 @@ export function registerTransferTools(server: McpServer, core: Core): void {
           .min(1)
           .max(200)
           .describe("The confirmation_token from prepare_transfer."),
+        otp: z
+          .string()
+          .regex(/^[\d\s-]{6,20}$/, "the 6-digit code the user read out")
+          .optional()
+          .describe(
+            "The 6-digit code from the text message, as the user read it out. Omit on the first call.",
+          ),
       },
       annotations: MOVES_MONEY,
     },
     safely(
       "confirm_transfer",
-      ({ confirmation_token }: { confirmation_token: string }, extra: Extra) => {
+      (
+        { confirmation_token, otp }: { confirmation_token: string; otp?: string | undefined },
+        extra: Extra,
+      ) => {
         const { userId, callerId } = principalOf(extra.authInfo);
-        return core.ledger.confirm(userId, confirmation_token, callerId);
+        return core.stepUp.confirm(userId, confirmation_token, callerId, otp);
       },
     ),
   );

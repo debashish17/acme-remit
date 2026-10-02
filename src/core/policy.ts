@@ -88,6 +88,13 @@ export const BENCHMARK = { name: "typical bank", marginBp: 250, feeMinor: 2500 }
 
 export const QUOTE_LOCK_MINUTES = 30;
 export const TOKEN_TTL_MINUTES = 5;
+
+/**
+ * Step-up before money moves (like 3-D Secure on a card payment): a 6-digit code by SMS to the
+ * registered phone, valid 5 minutes and never past the confirmation token, 3 wrong tries void
+ * the confirmation, and at most 3 codes are sent per confirmation.
+ */
+export const OTP = { digits: 6, ttlMinutes: 5, maxAttempts: 3, maxSends: 3 } as const;
 export const RATES_CACHE_MINUTES = 15;
 
 /** Relationships for which a gift is not flagged as taxable in India. */

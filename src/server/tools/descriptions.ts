@@ -15,7 +15,7 @@ export const TOOL_DESCRIPTIONS = {
   prepare_transfer:
     "Turn a quote into a confirmation request. Returns the exact sentence to read back to the user and a single-use confirmation_token valid for 5 minutes. Does not move money. Call confirm_transfer only after the user explicitly agrees to the read-back.",
   confirm_transfer:
-    "Execute a prepared transfer using its confirmation_token: charges the saved debit card and submits the transfer. Fails if the token is unknown, expired, already used, or if limits changed since the quote.",
+    "Execute a prepared transfer in two calls, after the user agrees to the read-back. Called with the confirmation_token alone, it texts a 6-digit one-time code to the user's registered phone and returns STEP_UP_REQUIRED; nothing is sent yet. Ask the user to read the code out, then call again with the same confirmation_token and otp: that charges the saved debit card and submits the transfer. The code is never in a tool result, so never guess it. Fails if the token is unknown, expired or used, if the code is wrong or expired, or if limits changed since the quote.",
   track_transfer:
     "Get the status of a transfer by reference or the most recent one: current stage, timeline, UTR once paid out, whether it can still be cancelled, and any action the user must take if it is under review. Use when the user asks where their money is or whether it was credited.",
   cancel_transfer:
