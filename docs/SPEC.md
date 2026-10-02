@@ -390,7 +390,7 @@ Serve the simulator as static files from the same Express app at `/`, so one App
 
 ## Hackathon step-by-step plan
 
-Submit by Oct 22, 2026; the Devpost deadline is Oct 23, 2026 at 12:00 PDT (00:30 IST on Oct 24), judging runs from Oct 26, 2026, winners are announced Dec 3, 2026.
+Submit by Oct 22, 2026; the Devpost deadline is Oct 23, 2026 at 12:00 PDT (00:30 IST on Oct 24). Judging runs Nov 9–20, 2026 (12:00 PT to 12:00 PT), and the project must stay available to judges, free and unrestricted, until it ends; winners are announced on or around Dec 3, 2026.
 
 &#91;embedded content: build plan · 6 phases, submit Oct 22\]
 
@@ -450,9 +450,10 @@ Each phase ends with a checkable milestone; if a phase slips, cut from phase 4 f
 
 **Oct 22 · Submit**
 
-- [ ] Fill every Devpost field; select Alexa+ track plus AWS Builder and Open Source mini challenges
-- [ ] Repo is public, so no reviewer invites needed; double-check the license file is at the root
+- [ ] Fill every Devpost field; select Alexa+ track plus AWS Builder and Open Source mini challenges (a project can win at most one mini challenge)
+- [ ] Repo is public, so no reviewer invites needed; double-check the license file is at the root and visible at the top (README license badge)
 - [ ] Keep Oct 23 free for fixes only
+- [ ] Keep the App Runner service, the simulator access code and the Bedrock model available through Nov 20, 2026 (end of judging). Check the model's end-of-life date covers it: Nova 2 Lite no sooner than Dec 2, 2026; Claude Haiku 4.5 could retire before judging, so a Claude fallback should be Sonnet 5.5
 
 ## Submission checklist
 

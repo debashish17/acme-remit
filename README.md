@@ -1,6 +1,7 @@
 # Acme Remit for Alexa+
 
 [![CI](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml/badge.svg)](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/debashish17/acme-remit)](LICENSE)
 
 > **Simulated ledger — no real funds move.** Mid-market exchange rates are live (ECB via Frankfurter, cached; AED/INR derived from USD/INR at the 3.6725 AED/USD peg); Acme pricing, limits, card funding, screening and payout are simulated.
 
