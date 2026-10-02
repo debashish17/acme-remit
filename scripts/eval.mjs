@@ -6,8 +6,10 @@
  * Each scenario starts from a fresh demo seed.
  *
  * Usage: node --env-file=.env scripts/eval.mjs [--runs 3] [--only script,spoken] [--verbose]
- * Env:   BASE_URL (default http://127.0.0.1:$PORT), SIM_ACCESS_CODE, DEV_CONTROLS_CODE
- * Exits 1 if any turn fails. Spends Bedrock calls: about 90 per run of all scenarios.
+ *        node --env-file=.env scripts/eval.mjs --usecases   (token cost of each journey)
+ * Env:   BASE_URL (default http://127.0.0.1:$PORT), SIM_ACCESS_CODE, DEV_CONTROLS_CODE,
+ *        PRICE_IN, PRICE_OUT (USD per million tokens; defaults: Nova 2 Lite, us. profile)
+ * Exits 1 if any turn fails. Spends Bedrock calls: about 65 per run of all scenarios.
  */
 
 const args = process.argv.slice(2);
@@ -18,6 +20,12 @@ const opt = (name, dflt) => {
 const RUNS = Number(opt("runs", 1));
 const ONLY = opt("only", "")?.split(",").filter(Boolean) ?? [];
 const VERBOSE = args.includes("--verbose");
+const USECASES = args.includes("--usecases");
+// Nova 2 Lite on-demand in us-east-1 via the us. inference profile, from the AWS Price List API
+// (2026-10-03). The global. profile is $0.30 / $2.50.
+const PRICE_IN = Number(process.env.PRICE_IN ?? 0.33);
+const PRICE_OUT = Number(process.env.PRICE_OUT ?? 2.75);
+const usd = (inTok, outTok) => (inTok * PRICE_IN + outTok * PRICE_OUT) / 1e6;
 const BASE = process.env.BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 const SIM = process.env.SIM_ACCESS_CODE;
 const DEV = process.env.DEV_CONTROLS_CODE;
@@ -53,7 +61,13 @@ const NEVER = [
   [/\b\d{4}-\d\d-\d\d\b/, "reads an ISO date aloud"],
 ];
 const words = (t) => t.split(/\s+/).filter(Boolean).length;
-const norm = (t) => t.replace(/\s+/g, " ").trim().toLowerCase();
+// Word-for-word means the words: spacing, case and punctuation may differ ("?" for "." reads the same).
+const norm = (t) =>
+  t
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 
 const executed = (r, name) => r.tool_calls.filter((c) => c.name === name && !c.blocked);
 const results = (r, name) =>
@@ -98,7 +112,7 @@ function check(turn, r, state) {
   for (const re of [].concat(turn.say ?? [])) if (!re.test(reply)) fails.push(`reply lacks ${re}`);
   for (const re of [].concat(turn.notSay ?? [])) if (re.test(reply)) fails.push(`reply has ${re}`);
   for (const [re, why] of NEVER) if (re.test(reply)) fails.push(why);
-  const long = turn.readBack || turn.preview ? 95 : 60;
+  const long = turn.maxWords ?? (turn.readBack || turn.preview ? 95 : 60);
   if (words(reply) > long) fails.push(`too long to speak (${words(reply)} words)`);
   if (turn.state) {
     const why = turn.state(state);
@@ -264,7 +278,8 @@ const SCENARIOS = {
       check: { preview: true, notCancelled: true },
     },
     { say: "actually no keep it", check: { notCancelled: true, state: latestIs("ON_HOLD") } },
-    { say: "what are my limits", calls: ["check_limits"] },
+    // An open question; four facts (month, today, per transfer, next tier) is a fair answer.
+    { say: "what are my limits", calls: ["check_limits"], check: { maxWords: 75 } },
     {
       say: "add a new recipient called priya with her bank account",
       not: ["quote_transfer", "prepare_transfer"],
@@ -299,6 +314,8 @@ async function play(name, steps) {
       continue;
     }
     const started = performance.now();
+    const before = (await http(`/sim/state?since=${encodeURIComponent(new Date().toISOString())}`))
+      .assistant_calls_left_today;
     const r = await http("/sim/chat", {
       body: { text: step.say, ...(conversation ? { conversation_id: conversation } : {}) },
     });
@@ -309,7 +326,12 @@ async function play(name, steps) {
     const fails = check(turnCheck, r, state);
     if (step.check?.notCancelled && results(r, "cancel_transfer").some((c) => c.args.cancel_token))
       fails.push("cancelled without a yes");
-    turns.push({ say: step.say, reply: r.reply, tools: r.tool_calls, ms, fails });
+    const usage = {
+      in: r.usage?.input_tokens ?? 0,
+      out: r.usage?.output_tokens ?? 0,
+      calls: before - state.assistant_calls_left_today,
+    };
+    turns.push({ say: step.say, reply: r.reply, tools: r.tool_calls, ms, fails, usage });
     const mark = fails.length ? "✗" : "✓";
     const tools = r.tool_calls
       .map(
@@ -317,11 +339,54 @@ async function play(name, steps) {
           `${c.name}${c.blocked ? "[held]" : ""}${c.refused && !c.blocked ? `[${c.refused}]` : ""}`,
       )
       .join(", ");
-    console.log(`  ${mark} ${step.say}  (${(ms / 1000).toFixed(1)} s; ${tools || "no tools"})`);
+    const cost = `${usage.calls} calls, ${usage.in}/${usage.out} tok`;
+    console.log(
+      `  ${mark} ${step.say}  (${(ms / 1000).toFixed(1)} s; ${cost}; ${tools || "no tools"})`,
+    );
     if (fails.length || VERBOSE) console.log(`      → ${r.reply}`);
     for (const f of fails) console.log(`      ! ${f}`);
   }
   return turns;
+}
+
+/* ---------- token cost per journey (--usecases): each from a fresh seed and conversation ---------- */
+const step = (n) => SCENARIOS.script[n];
+const USE_CASE_LIST = [
+  ["Check the rate", [step(0)]],
+  ["How much would arrive", [step(1)]],
+  ["Send money: ask, read-back, yes", [step(2), step(3)]],
+  ["Track a transfer", [{ say: "Where's my money?", calls: ["track_transfer"] }]],
+  ["Cancel: preview, yes", [step(9), step(10)]],
+  ["Set a rate alert", [step(11)]],
+  ["Whole demo script, one conversation", SCENARIOS.script],
+];
+
+if (USECASES) {
+  const rows = [];
+  for (const [label, steps] of USE_CASE_LIST) {
+    console.log(`
+${label}`);
+    const turns = await play(label, steps);
+    const sum = turns.reduce(
+      (a, t) => ({
+        in: a.in + t.usage.in,
+        out: a.out + t.usage.out,
+        calls: a.calls + t.usage.calls,
+      }),
+      { in: 0, out: 0, calls: 0 },
+    );
+    rows.push({ label, turns: turns.length, ...sum, usd: usd(sum.in, sum.out) });
+  }
+  console.log(`
+Token cost per journey (USD ${PRICE_IN}/M input, ${PRICE_OUT}/M output)`);
+  console.log("| Journey | Turns | Bedrock calls | Input tokens | Output tokens | Cost (USD) |");
+  console.log("| --- | --- | --- | --- | --- | --- |");
+  for (const r of rows) {
+    console.log(
+      `| ${r.label} | ${r.turns} | ${r.calls} | ${r.in.toLocaleString("en-US")} | ${r.out.toLocaleString("en-US")} | ${r.usd.toFixed(5)} |`,
+    );
+  }
+  process.exit(0);
 }
 
 const names = Object.keys(SCENARIOS).filter((n) => !ONLY.length || ONLY.includes(n));
