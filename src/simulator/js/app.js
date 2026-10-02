@@ -509,8 +509,21 @@ log.addEventListener("click", (e) => {
   );
 });
 
-/* ---------- push to talk ---------- */
-let holdTimer = null;
+/* ---------- talk: hold to talk, or tap once and it listens until you pause ---------- */
+const TAP_MS = 350; // a press shorter than this is a tap
+const PAUSE_MS = 1500; // in tap mode, this much silence after speech ends the turn
+const WAIT_MS = 6000; // in tap mode, how long to wait for the first word
+const MAX_MS = 15000; // a turn never listens longer than this
+let maxTimer = null;
+let pauseTimer = null;
+let pressedAt = 0;
+let tapMode = false;
+let heard = false;
+
+function armPause() {
+  clearTimeout(pauseTimer);
+  pauseTimer = setTimeout(stopListen, heard ? PAUSE_MS : WAIT_MS);
+}
 function startListen() {
   if (S.listening || S.busy || !S.connected) return;
   if (!voice.canListen) {
@@ -519,15 +532,22 @@ function startListen() {
   }
   S.speakGen++;
   stopSpeaking();
+  heard = false;
   setOrb("listening");
   setBig(true);
   $("#orbwrap").classList.add("hold");
   orb.setLevelSource(micLevel);
   captionHint("Listening…");
-  S.listening = listen({ onInterim: (firm, interim) => captionYou(firm, interim) })
+  S.listening = listen({
+    onInterim: (firm, interim) => {
+      captionYou(firm, interim);
+      if (firm || interim) heard = true;
+      if (tapMode) armPause();
+    },
+  })
     .then((t) => {
       if (t) return send(t, { voiceTurn: true });
-      captionHint("I didn't catch that. Hold to talk, or type.");
+      captionHint("I didn't catch that. Tap or hold to talk, or type.");
       setOrb("idle");
       setBig(false);
     })
@@ -545,32 +565,55 @@ function startListen() {
       setBig(false);
     })
     .finally(() => {
+      clearTimeout(maxTimer);
+      clearTimeout(pauseTimer);
       S.listening = null;
+      tapMode = false;
       orb.setLevelSource(null);
-      $("#orbwrap").classList.remove("hold");
+      $("#orbwrap").classList.remove("hold", "tap");
     });
-  holdTimer = setTimeout(stopListen, 8000);
+  maxTimer = setTimeout(stopListen, MAX_MS);
 }
 function stopListen() {
-  clearTimeout(holdTimer);
+  clearTimeout(maxTimer);
+  clearTimeout(pauseTimer);
   if (S.listening) stopListening();
+}
+/** Press: start listening; or, during a tap session, end it. */
+function press() {
+  if (S.listening) {
+    if (tapMode) stopListen();
+    return;
+  }
+  pressedAt = performance.now();
+  tapMode = false;
+  startListen();
+}
+/** Release: a hold ends the turn; a quick tap switches to listening until a pause. */
+function release() {
+  if (!S.listening || tapMode) return;
+  if (performance.now() - pressedAt < TAP_MS) {
+    tapMode = true;
+    $("#orbwrap").classList.replace("hold", "tap");
+    armPause();
+    return;
+  }
+  stopListen();
 }
 for (const b of [$("#orbBtn"), $("#barMic")]) {
   b.addEventListener("pointerdown", (e) => {
     e.preventDefault();
-    startListen();
+    press();
   });
-  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
-    b.addEventListener(ev, stopListen),
-  );
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => b.addEventListener(ev, release));
   b.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && !e.repeat) {
       e.preventDefault();
-      startListen();
+      press();
     }
   });
   b.addEventListener("keyup", (e) => {
-    if (e.key === "Enter" || e.key === " ") stopListen();
+    if (e.key === "Enter" || e.key === " ") release();
   });
 }
 const typing = (t) =>
@@ -592,11 +635,11 @@ document.addEventListener("keydown", (e) => {
     return;
   if (e.code === "Space" && !e.repeat) {
     e.preventDefault();
-    startListen();
+    press();
   } else if (e.key === "h" || e.key === "H") setFocus(!body.classList.contains("focus"));
 });
 document.addEventListener("keyup", (e) => {
-  if (e.code === "Space" && !typing(e.target)) stopListen();
+  if (e.code === "Space" && !typing(e.target)) release();
 });
 
 /* ---------- demo player: the scripted beats from SPEC, said by you one at a time ---------- */
@@ -746,7 +789,7 @@ async function connect() {
     }
     captionHint(
       voice.canListen
-        ? "Hold the orb or Space to talk, or type below."
+        ? "Tap or hold the orb (or Space) to talk, or type below."
         : "Type below, or pick a suggestion.",
     );
     startPolling();

@@ -1046,7 +1046,7 @@ body.mono .say .k.on {
 }
 .orbwrap.hold .hring circle {
   stroke-dashoffset: 0;
-  transition: stroke-dashoffset 8s linear;
+  transition: stroke-dashoffset 15s linear;
 }
 .caption {
   width: 100%;
@@ -1505,5 +1505,20 @@ body.noproto .proto {
   .rise {
     filter: none;
     transform: none;
+  }
+}
+
+/* tap to talk: a steady ring that breathes until the pause ends the turn */
+.orbwrap.tap .hring {
+  opacity: 1;
+  animation: tapring 1.6s ease-in-out infinite;
+}
+.orbwrap.tap .hring circle {
+  stroke-dashoffset: 0;
+  transition: none;
+}
+@keyframes tapring {
+  50% {
+    opacity: 0.45;
   }
 }
