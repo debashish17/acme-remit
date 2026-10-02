@@ -109,6 +109,14 @@ function check(turn, r, state) {
   ) {
     fails.push("did not cancel");
   }
+  if (turn.saysRate) {
+    const out = results(r, "get_rate").at(-1)?.out;
+    const rate = out?.customer_rate ?? out?.mid_rate;
+    if (typeof rate !== "number") fails.push("no rate fetched");
+    else if (!reply.replace(/,/g, "").includes(rate.toFixed(2))) {
+      fails.push(`did not say ${rate.toFixed(2)}`);
+    }
+  }
   for (const re of [].concat(turn.say ?? [])) if (!re.test(reply)) fails.push(`reply lacks ${re}`);
   for (const re of [].concat(turn.notSay ?? [])) if (re.test(reply)) fails.push(`reply has ${re}`);
   for (const [re, why] of NEVER) if (re.test(reply)) fails.push(why);
@@ -260,6 +268,26 @@ const SCENARIOS = {
       calls: ["set_rate_alert"],
       check: { say: /26\.5|twenty.six and a half|twenty.six point five/i },
     },
+  ],
+
+  // Other currencies: information only, and nothing is sent outside AED to INR.
+  currencies: [
+    {
+      say: "how many philippine pesos would i get for one dirham",
+      calls: ["get_rate"],
+      check: { saysRate: true, say: /information/i },
+    },
+    {
+      say: "and whats the us dollar to rupee rate",
+      calls: ["get_rate"],
+      check: { say: /\b\d\d\.\d\d\b/ },
+    },
+    {
+      say: "can i send 500 dirhams to my friend in manila",
+      not: ["quote_transfer", "prepare_transfer"],
+      check: { say: /India|rupees/i },
+    },
+    { say: "whats the kuwaiti dinar rate", not: ["quote_transfer"] },
   ],
 
   // Consent edge cases: nothing moves without a later, clear yes to the exact read-back.

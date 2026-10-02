@@ -20,6 +20,8 @@ export const fmt = {
   inr: (v, dp = 2) =>
     `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: dp, maximumFractionDigits: dp })}`,
   rate: (v) => Number(v).toFixed(2),
+  /** Any pair: small rates (e.g. INR to USD) need more places to mean anything. */
+  anyRate: (v) => Number(v).toFixed(Math.abs(v) < 1 ? 4 : 2),
   day: (iso) =>
     new Date(/^\d{4}-\d\d-\d\d$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString("en-GB", {
       day: "numeric",
@@ -262,6 +264,17 @@ const utrHtml = (utr) =>
 
 /* ---------- read-only cards ---------- */
 export function rateCard(d) {
+  if (d.sendable === false) {
+    const [f, t] = String(d.pair).split("/");
+    return el(`<article class="card rate rise" aria-label="Exchange rate">
+    <p class="eyebrow">Mid-market rate · ${esc(f)} to ${esc(t)} · information only</p>
+    <div class="mini"><span class="fig">${esc(fmt.anyRate(d.mid_rate))}</span><span>${esc(t)} for 1 ${esc(f)}</span></div>
+    ${kv([
+      ["Trend", esc(d.trend)],
+      ["Week high / low", `${esc(fmt.anyRate(d.week_high))} / ${esc(fmt.anyRate(d.week_low))}`],
+    ])}
+    <p class="foot">${esc(d.note)} ${esc(d.source)}</p></article>`);
+  }
   return el(`<article class="card rate rise" aria-label="Today's rate">
     <p class="eyebrow">Today's rate · AED to INR</p>
     <div class="mini"><span class="fig">${esc(fmt.inr(d.customer_rate))}</span><span>for 1 dirham · Acme rate</span></div>
