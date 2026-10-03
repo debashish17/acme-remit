@@ -21,6 +21,14 @@ const ConfigSchema = z.object({
   POLLY_ENGINE: z.enum(["standard", "neural", "generative", "long-form"]).default("neural"),
   // Characters Polly may bill per day (each reply bills its length twice: audio and word timings).
   SIM_DAILY_TTS_CHARS: z.coerce.number().int().min(1).default(100000),
+  // Simulator mode: scripted (no language model) or bedrock (the live model through LLM_PROVIDER).
+  // Unset: bedrock when a model is usable (AWS credentials, or an LLM_API_KEY), else scripted.
+  SIM_MODE: z.enum(["scripted", "bedrock"]).optional(),
+  // The live model: Amazon Bedrock (default) or any OpenAI-compatible /chat/completions endpoint.
+  LLM_PROVIDER: z.enum(["bedrock", "openai_compatible"]).default("bedrock"),
+  LLM_BASE_URL: z.url().default("https://api.openai.com/v1"),
+  LLM_API_KEY: z.string().min(1).optional(),
+  LLM_MODEL: z.string().min(1).default("gpt-4o-mini"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

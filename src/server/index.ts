@@ -8,7 +8,10 @@ import { startJobs } from "./jobs.js";
 import { bedrockConverse, ChatService } from "./sim/chat.js";
 import { DailyBudget } from "./sim/guards.js";
 import { SYSTEM_PROMPT } from "./sim/prompt.js";
+import { decideMode, hasAwsCredentials } from "./sim/mode.js";
+import { openAiCompatibleConverse } from "./sim/openai.js";
 import { McpRelay } from "./sim/relay.js";
+import { ScriptedChat, type ChatEngine } from "./sim/scripted.js";
 import { pollySynthesize, TtsService } from "./sim/tts.js";
 
 let config: Config;
@@ -40,16 +43,35 @@ const relay = new McpRelay({
   bearer: config.MCP_BEARER_TOKEN,
 });
 const budget = new DailyBudget(config.SIM_DAILY_BEDROCK_CALLS);
-const chat = new ChatService({
-  relay,
-  converse: bedrockConverse(config.AWS_REGION),
-  modelId: config.BEDROCK_MODEL_ID,
-  systemPrompt: SYSTEM_PROMPT,
-  budget,
-});
+// One look at the AWS credential chain decides the defaults: a clean clone with no AWS account
+// runs the scripted demo and the browser's voice, with no failing calls.
+const awsCredentials = await hasAwsCredentials(config.AWS_REGION);
+const { mode, reason } = decideMode(config, awsCredentials);
+const openai = config.LLM_PROVIDER === "openai_compatible";
+const llm = {
+  provider: config.LLM_PROVIDER,
+  model: openai ? config.LLM_MODEL : config.BEDROCK_MODEL_ID,
+};
+const chat: ChatEngine =
+  mode === "scripted"
+    ? new ScriptedChat(relay)
+    : new ChatService({
+        relay,
+        converse: openai
+          ? openAiCompatibleConverse({
+              baseUrl: config.LLM_BASE_URL,
+              apiKey: config.LLM_API_KEY ?? "",
+              model: config.LLM_MODEL,
+            })
+          : bedrockConverse(config.AWS_REGION),
+        modelId: llm.model,
+        systemPrompt: SYSTEM_PROMPT,
+        budget,
+      });
 
+// Polly needs AWS credentials; without them the page uses the browser's voice directly.
 const tts =
-  config.POLLY_VOICE === "none"
+  config.POLLY_VOICE === "none" || !awsCredentials
     ? undefined
     : new TtsService({
         synthesize: pollySynthesize({
@@ -72,6 +94,8 @@ const app = createApp({
     accessCode: config.SIM_ACCESS_CODE,
     devCode: config.DEV_CONTROLS_CODE,
     tts,
+    mode,
+    llm: mode === "scripted" ? null : llm,
     reseed: () => {
       seed(db);
       chat.clear();
@@ -87,7 +111,12 @@ const httpServer = app.listen(config.PORT, (err) => {
   }
   console.log(`acme-remit listening on :${config.PORT} (POST /mcp, GET /health)`);
   console.log(
-    `simulator ${config.SIM_ACCESS_CODE ? "on" : "off (set SIM_ACCESS_CODE)"}; dev controls ${config.DEV_CONTROLS_CODE ? "on" : "off"}; model ${config.BEDROCK_MODEL_ID}; voice ${tts ? `Polly ${config.POLLY_VOICE} (${config.POLLY_ENGINE})` : "browser"}`,
+    `simulator ${config.SIM_ACCESS_CODE ? "on" : "off (set SIM_ACCESS_CODE)"}; dev controls ${config.DEV_CONTROLS_CODE ? "on" : "off"}; voice ${tts ? `Polly ${config.POLLY_VOICE} (${config.POLLY_ENGINE})` : "browser"}`,
+  );
+  console.log(
+    mode === "scripted"
+      ? `simulator mode: scripted (${reason}): Play demo runs the real tools with no language model`
+      : `simulator mode: live model (${reason}): ${llm.provider} ${llm.model}`,
   );
 });
 

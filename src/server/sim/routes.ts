@@ -4,7 +4,8 @@ import type { Core } from "../../core/index.js";
 import { DEMO_USER_ID } from "../../core/policy.js";
 import { isRefusal } from "../../core/refusal.js";
 import { toWire } from "../wire.js";
-import type { ChatService } from "./chat.js";
+import type { ChatEngine } from "./scripted.js";
+import { DEMO_BEATS } from "./scripted.js";
 import { hasCode, RateLimiter, requireCode, type DailyBudget } from "./guards.js";
 import type { Exchange, McpRelay } from "./relay.js";
 import type { TtsService } from "./tts.js";
@@ -17,7 +18,10 @@ import type { TtsService } from "./tts.js";
 
 export interface SimDeps {
   core: Core;
-  chat: ChatService;
+  chat: ChatEngine;
+  /** scripted: no language model; bedrock: the live model through LLM_PROVIDER. */
+  mode?: "scripted" | "bedrock";
+  llm?: { provider: string; model: string } | null;
   relay: McpRelay;
   budget: DailyBudget;
   accessCode?: string | undefined;
@@ -57,6 +61,9 @@ export function simRouter(deps: SimDeps): Router {
         tools,
         exchanges,
         tts: deps.tts ? deps.tts.voice : null,
+        mode: deps.mode ?? "bedrock",
+        llm: deps.llm ?? null,
+        demo_beats: DEMO_BEATS,
       });
     } catch (err) {
       res.status(502).json({ error: "mcp_unavailable", message: String(err), exchanges });
