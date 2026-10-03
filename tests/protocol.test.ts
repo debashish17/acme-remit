@@ -210,6 +210,23 @@ describe("tools/call", () => {
     }
   });
 
+  it("track_transfer with latest: true tracks the latest transfer even if a ref is sent too", async () => {
+    const latest = await call("track_transfer", { latest: true, transfer_ref: "ACM-240119" });
+    expect(latest.body.result.structuredContent).toMatchObject({ transfer_ref: "ACM-240120" });
+    const byRef = await call("track_transfer", { transfer_ref: "ACM-240119" });
+    expect(byRef.body.result.structuredContent).toMatchObject({ transfer_ref: "ACM-240119" });
+  });
+
+  it("serverInfo.version comes from package.json", async () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const init = await rpc("initialize", {
+      protocolVersion: PROTOCOL,
+      capabilities: {},
+      clientInfo: { name: "t", version: "0" },
+    });
+    expect(init.body.result.serverInfo).toEqual({ name: "acme-remit", version: pkg.version });
+  });
+
   it("get_rate quotes other currencies for information and refuses unknown ones", async () => {
     const info = await call("get_rate", { from: "USD", to: "INR" });
     expect(info.body.result.isError).toBeFalsy();

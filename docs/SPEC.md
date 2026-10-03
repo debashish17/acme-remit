@@ -401,7 +401,7 @@ The simulator stands in for Alexa+ because Alexa+ is not available in India. Its
 
 **How it works**
 
-1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 12 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
+1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 13 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
 2. The user speaks (Web Speech API, `webkitSpeechRecognition`) or types. The transcript is appended to a message history.
 3. The page sends the new turn to `POST /sim/chat`. The relay keeps the conversation server-side (tool calls included, in memory, 30-minute expiry) and forwards it with the tool schemas to Amazon Bedrock (Nova 2 Lite or Claude on Bedrock via the Converse API with tool use). Keeping Bedrock behind the server avoids shipping AWS keys to the browser and is the documented AWS Builder integration.
 4. When Bedrock returns a tool call, the relay executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until Bedrock returns text. It returns the reply together with each JSON-RPC request and response and its latency in ms; tokens are shown by prefix only.
