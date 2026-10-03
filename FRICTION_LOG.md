@@ -182,3 +182,17 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor
 - **Workaround:** `res.sendFile(path, { dotfiles: "allow" })` for that one route (the path is fixed; nothing from the request reaches it).
 - **Suggestion:** Express: apply the dotfiles rule only to the part of the path below `root` (or to request-derived segments), and say "dotfile ignored" in the error.
+
+### 2026-10-04 · MCPJam Inspector (`@mcpjam/inspector@latest`) and the ext-apps reference host · Testing the MCP Apps view in a third-party host
+
+- **Task:** Check that `ui://acme-remit/transfer` works in a third-party MCP Apps host, not only in our simulator, with no paid model calls.
+- **Steps:** `npx @mcpjam/inspector@latest --url http://127.0.0.1:3000/mcp --bearer <token> --no-open`, then open the printed link. Then the official reference host: `ext-apps/examples/basic-host` with `SERVERS='["http://localhost:3001/mcp"]' npm run start`.
+- **Expected:** MCPJam, documented as a local tool for testing MCP Apps, opens on the tools tab without an account. The reference host connects with a header, as Streamable HTTP clients usually can.
+- **Actual:**
+  - MCPJam redirects the local inspector to `login.mcpjam.com` (email, Google or GitHub), with no way past it without an account.
+  - `--help` isn't a flag: it starts the inspector and opens the default browser.
+  - The signed link's `#token=` fragment is lost if the URL goes through Chrome's `/json/new?` endpoint.
+  - The reference host builds `new StreamableHTTPClientTransport(serverUrl)` with no headers and calls the server from the browser. A server that needs a Bearer token and sends no CORS headers (ours, because Alexa+ calls it server to server) is unreachable from it.
+- **Severity:** minor (the view itself worked; the hosts needed workarounds)
+- **Workaround:** `scripts/host-proxy.mjs`, a local proxy that adds the Bearer header and CORS. Through it the reference host ran the whole flow: quote, read-back (Confirm arrived as `ui/message`), the step-up code typed into the view, confirm through the host's `AppBridge`, the live receipt to Paid out, and `ui/update-model-context`. MCPJam is left at its sign-in screen.
+- **Suggestion:** MCPJam: keep a no-account mode for local servers, and support `--help`. ext-apps basic-host: accept headers per server in `SERVERS` (e.g. `{ "url": ..., "headers": {...} }`) so it can test authenticated servers.
