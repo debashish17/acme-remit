@@ -142,3 +142,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** major (it changed the demo path and the run requirements three weeks before the deadline)
 - **Workaround:** Our own web simulator is the demo path. A scripted mode runs the whole demo through the real MCP tools with no language model and no AWS account; Bedrock or any OpenAI-compatible key turns on the live model.
 - **Suggestion:** State on the track page from day one which Amazon tools participants can and can't use, and offer a sandbox for add-on testing.
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps (MCP Apps SDK) · `latest` needs the v2 MCP SDK, and pnpm installed it anyway
+
+- **Task:** Add the official MCP Apps SDK for the transfer view (`ui://acme-remit/transfer`).
+- **Steps:** `pnpm add @modelcontextprotocol/ext-apps`, then read the installed package's `peerDependencies`.
+- **Expected:** The `latest` tag works with `@modelcontextprotocol/sdk` 1.x, which is the stable SDK and what the MCP Apps docs use in their examples (`McpServer` from `@modelcontextprotocol/sdk/server/mcp.js`).
+- **Actual:** `latest` is 2.0.3. Its peers are `@modelcontextprotocol/server`, `client` and `core` ^2.0.0, the split packages of MCP SDK v2. We are on `@modelcontextprotocol/sdk` 1.31 (CLAUDE.md pins 1.x). pnpm added 2.0.3 with no error, so the mismatch only showed when we read the peer list. The 1.x line (1.7.5) peers on `@modelcontextprotocol/sdk` ^1.29.0 and has the same `registerAppTool`, `registerAppResource`, `App` and `AppBridge` APIs.
+- **Severity:** minor (caught before any code; easy to miss)
+- **Workaround:** Pin `@modelcontextprotocol/ext-apps@^1.7.5`.
+- **Suggestion:** ext-apps: say on the README which major goes with which MCP SDK, or keep `latest` on the line that matches the stable SDK until v2 is the default. pnpm: fail (or warn loudly) on an unmet non-optional peer by default.
