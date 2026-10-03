@@ -1,10 +1,10 @@
 # Acme Remit for Alexa+ — Build Spec & Hackathon Plan
 
-Oct 1, 2026 · @Debashish
+Oct 1, 2026 · @Debashish · updated Oct 4, 2026 after the hackathon FAQ
 
 ## Locked decisions
 
-Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP server (spec 2025-11-25, Streamable HTTP) over a simulated ledger, entered in the Alexa+ track plus the AWS Builder and Open Source mini challenges.
+Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP server (spec 2025-11-25, Streamable HTTP) over a simulated ledger, entered in the Alexa+ track plus the AWS Builder and Open Source mini challenges. Its own web simulator, which stands in for Alexa+, is the demo, and the whole experience runs locally with nothing but Node.
 
 | Decision | Choice | Why |
 | --- | --- | --- |
@@ -19,7 +19,9 @@ Acme Remit is one remittance provider's own Alexa+ add-on: a self-hosted MCP ser
 | Compliance | Purpose of remittance captured (family maintenance default); screening hold modelled as ON\_HOLD with an RFI the customer can act on; reason for a hit is never disclosed (tipping-off) | Shows real AML behaviour without inventing internals |
 | State changes | Only `confirm_transfer` and `cancel_transfer` move money, both behind the same read-back-and-token gate; `set_rate_alert` writes alert state | The asymmetry is the headline safety claim |
 | Step-up | Before money moves, `confirm_transfer` texts a 6-digit one-time code to the registered phone (simulated SMS) and charges the card only on a second call carrying it; 3 wrong tries void the confirmation. Cancels need no code (the refund goes to the same card) | Mirrors 3-D Secure on card payments; the code never appears in a tool result, so the model cannot approve a payment on its own |
-| Stack | TypeScript, Express, `@modelcontextprotocol/sdk`, SQLite (better-sqlite3), AWS App Runner us-east-1, Bedrock in the simulator | Lowest ops for a solo build, satisfies AWS Builder |
+| Demo path and judging | Our own web simulator is the demo. Amazon's Alexa+ CLI, MCP Toolkit and web simulator are not available to participants, hosting is not required, and judges run the repo locally without AWS credentials. So the simulator needs nothing but Node: scripted mode drives the real tools from the demo script with no language model; Amazon Bedrock (default) or any OpenAI-compatible model turns on free conversation | From the hackathon FAQ (Oct 4): a judge must see the whole flow on a clean clone with no account |
+| Cross-session context | `get_pending` returns what is waiting since the last conversation (open quotes, transfers under review with their RFI, rate alerts that fired, the last transfer per recipient). The assistant calls it at the start of each conversation and resolves "send the usual to Mum" from it | Conversations aren't stored; the ledger is the memory, so context carries across sessions without keeping transcripts |
+| Stack | TypeScript, Express, `@modelcontextprotocol/sdk`, SQLite (better-sqlite3); in the simulator Amazon Bedrock (Nova 2 Lite) or any OpenAI-compatible model, or scripted mode without one; Amazon Polly for the voice when AWS credentials exist; optional hosting on AWS App Runner us-east-1 | Lowest ops for a solo build; runs with no account; Bedrock and Polly satisfy AWS Builder |
 
 Open item: the product name. Placeholder `acme-remit` in code until chosen.
 
@@ -37,7 +39,7 @@ Requests flow top to bottom; the only outbound network call is the cached rate f
 2. Model calls `quote_transfer(2000, "AED", "ben_01", "bank_deposit", "family_maintenance")` → core reads the cached mid rate, applies the corridor FX margin, adds the flat fee, checks tier limits and velocity, writes a quote row (rate and fee locked 30 min), returns the guaranteed receive amount, ETA and `quote_id`.
 3. Model reads the quote back. User: "Confirm."
 4. Model calls `prepare_transfer(quote_id)` → core issues a single-use `confirmation_token` (5-min expiry) and returns the exact read-back sentence. Model says it again; this is the consent step.
-5. User: "Yes." Model calls `confirm_transfer(token)` → core validates the token, re-checks limits, charges the saved card (mock, instant), writes the transfer as `FUNDS_RECEIVED` then `SCREENING`, returns `transfer_ref`.
+5. User: "Yes." Model calls `confirm_transfer(token)` → the server texts a 6-digit code to the customer's phone and refuses `STEP_UP_REQUIRED`; nothing has moved. The user reads the code out, and the model calls `confirm_transfer(token, otp)` → core validates the token and the code, re-checks limits, charges the saved card (mock, instant), writes the transfer as `FUNDS_RECEIVED` then `SCREENING`, returns `transfer_ref`.
 6. A background ticker moves it to `SENT_TO_PARTNER` after 15 s and `PAID_OUT` with a generated UTR after 30 s, so `track_transfer` changes during the video. One seeded past transfer sits in `RETURNED` and one in `ON_HOLD` with an RFI, so the model can explain those states too.
 
 **Real vs simulated**
@@ -46,10 +48,12 @@ Requests flow top to bottom; the only outbound network call is the cached rate f
 | --- | --- | --- |
 | MCP server, Streamable HTTP, spec 2025-11-25 | yes |  |
 | Bearer auth, token lifecycle, limit enforcement | yes |  |
-| AWS App Runner deployment, Bedrock in the client | yes |  |
+| The assistant: Amazon Bedrock or any OpenAI-compatible model | yes | scripted mode when none is configured (real tools, fixed script) |
+| AWS App Runner deployment (optional) | yes |  |
 | Mid-market exchange rates | yes, Frankfurter |  |
 | Acme FX margin, fees, payout methods, KYC tier limits |  | yes |
 | Card funding, ledger, screening, payout partner, UTRs |  | yes |
+| SMS delivery of the step-up code (shown on a simulated phone) |  | yes |
 
 ## Tool contract
 
@@ -207,6 +211,7 @@ Six small services behind plain TypeScript interfaces; the MCP handlers only par
 ```
 src/
   server/            MCP adapter: Express app, Streamable HTTP transport, Bearer check, tool registrations
+    sim/             the simulator's relay to /mcp, chat loop (Bedrock or OpenAI-compatible), scripted mode, Polly
   core/
     rates.ts         RatesService
     beneficiaries.ts BeneficiaryService
@@ -214,8 +219,11 @@ src/
     limits.ts        LimitService
     ledger.ts        LedgerService (confirm, transfers, status ticker)
     alerts.ts        AlertService
-    confirm.ts       ConfirmationGate (token issue/validate; candidate OSS package)
-  db/                schema.sql, migrate.ts, seed.ts
+    confirm.ts       ConfirmationGate (token issue/validate; published as mcp-confirm-gate)
+    stepup.ts        StepUpService (one-time code by SMS before confirm; simulated phone)
+    pending.ts       PendingService (get_pending: cross-session context from the ledger)
+    help.ts          get_help answers, built from the policy values
+  db/                schema.sql, migrations/, migrate.ts, seed.ts
   simulator/         static web client
 tests/
 ```
@@ -406,23 +414,29 @@ Tokens are bound to the authenticated caller (the principal from the Bearer chec
 | `ledger.test.ts` | confirm charges the card exactly once under two concurrent confirms (second refused) · ticker advances SCREENING → SENT\_TO\_PARTNER → PAID\_OUT and sets a UTR · ON\_HOLD is not advanced by the ticker · cancel in SCREENING or ON\_HOLD refunds the amount charged (fee included) and lowers monthly used · cancel after SENT\_TO\_PARTNER refused CANCEL\_WINDOW\_CLOSED · cancel preview then execute consumes one cx\_ token, reuse refused · track returns RFI for ON\_HOLD and refund details for RETURNED · history totals and limits\_used match seeded rows |
 | `rates.test.ts` | live fetch populates cache · second call within 15 min does not hit the network (mocked fetch) · network failure falls back to seeded history with source=fallback |
 | `help.test.ts` | every topic has a spoken answer under 75 words, points, a source and a review date · numbers come from the enforced policy and follow the tier · LRS is said not to apply to inward remittances · NRE/NRO, LRS and tax carry the general-information disclaimer · recipients are never added by voice |
+| `pending.test.ts` | under-review transfer with its RFI and a plain-words summary · last transfer per recipient skips cancelled and returned · open quotes until used or expired · alerts fired in the last 7 days · "nothing needs your attention" · major units on the wire |
+| `scripted.test.ts` | every demo beat end to end over `POST /mcp` with no model, including the step-up code · free text outside the script gets a notice · a code read as words · "send the usual to Mum" from `get_pending` · the mode decision |
+| `openai.test.ts` | Converse ⇄ chat-completions translation · the tool loop through `/mcp` on an OpenAI-compatible endpoint · provider errors never leak the key |
+| `skill.test.ts` | `skills/acme-remit/SKILL.md` follows the Agent Skills format · the safe flow stays in order · every tool is referenced |
 | `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 14 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
 
 Run `npm test` in CI (GitHub Actions on every push) so the green badge is in the README on submission day.
 
 ## Simulated Alexa+ client
 
-The simulator stands in for Alexa+ because Alexa+ is not available in India. Its server-side relay talks to the MCP server over the same HTTP endpoint Alexa+ would, so nothing in the MCP server is simulator-specific; the browser never holds the Bearer secret.
+The simulator stands in for Alexa+ and is the official demo path: Amazon's Alexa+ CLI, MCP Toolkit and web simulator are not available to hackathon participants (and Alexa+ isn't available in India). Its server-side relay talks to the MCP server over the same HTTP endpoint Alexa+ would, so nothing in the MCP server is simulator-specific; the browser never holds the Bearer secret.
+
+**Modes.** `SIM_MODE=scripted|bedrock`, decided at startup and logged. Unset, it is `bedrock` (the live model through `LLM_PROVIDER`) when a model is usable (AWS credentials resolve, or `LLM_API_KEY` is set) and `scripted` otherwise. Scripted mode follows the demo beats (plus the suggestion chips, the receipt's Cancel button, a code read as digits or words, and "the usual") and drives the real tools through the same relay, so every step is still a genuine `POST /mcp` round trip; free text outside the script gets a notice that no model is configured. `LLM_PROVIDER=bedrock|openai_compatible` (with `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`) picks the live model; an adapter translates Converse to `/chat/completions`, so the loop, the consent guard and the relay are the same either way.
 
 **How it works**
 
 1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 14 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
 2. The user speaks (Web Speech API, `webkitSpeechRecognition`) or types. The transcript is appended to a message history.
-3. The page sends the new turn to `POST /sim/chat`. The relay keeps the conversation server-side (tool calls included, in memory, 30-minute expiry) and forwards it with the tool schemas to Amazon Bedrock (Nova 2 Lite or Claude on Bedrock via the Converse API with tool use). Keeping Bedrock behind the server avoids shipping AWS keys to the browser and is the documented AWS Builder integration.
-4. When Bedrock returns a tool call, the relay executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until Bedrock returns text. It returns the reply together with each JSON-RPC request and response and its latency in ms; tokens are shown by prefix only.
-5. The reply is rendered as a chat bubble and spoken with Amazon Polly (`POST /sim/speak`: neural voice Kajal, Indian English, with word timings that drive the read-back highlight), cached per line and capped per day by `SIM_DAILY_TTS_CHARS`; the page falls back to the browser's `speechSynthesis` if Polly is off or fails.
+3. The page sends the new turn to `POST /sim/chat`. The relay keeps the conversation server-side (tool calls included, in memory, 30-minute expiry) and forwards it with the tool schemas to the live model: Amazon Bedrock (Nova 2 Lite, or Claude on Bedrock) via the Converse API with tool use, or an OpenAI-compatible endpoint. In scripted mode, the scripted engine answers instead, with no model. Keeping the model behind the server avoids shipping keys to the browser; Bedrock is the documented AWS Builder integration.
+4. When the model returns a tool call, the relay executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until the model returns text. It returns the reply together with each JSON-RPC request and response and its latency in ms; tokens are shown by prefix only.
+5. The reply is rendered as a chat bubble and spoken. With AWS credentials it uses Amazon Polly (`POST /sim/speak`: neural voice Kajal, Indian English, with word timings that drive the read-back highlight), cached per line and capped per day by `SIM_DAILY_TTS_CHARS`; without them, or if Polly fails, the browser's `speechSynthesis`.
 
-**The system prompt given to Bedrock** is the one place you emulate Alexa+ behaviour: be brief, speak amounts in words, always read back a prepared transfer and wait for an explicit yes before calling `confirm_transfer`, ask the user to choose when a recipient is ambiguous, say "recipient" and "receive amount" rather than "beneficiary" or "payout", never speculate about why a transfer is under review, and explain refusals using the `resolution` text.
+**The system prompt given to the model** is the one place you emulate Alexa+ behaviour: call `get_pending` at the start of a conversation and mention anything pending in one sentence, be brief, speak amounts in words, always read back a prepared transfer and wait for an explicit yes before calling `confirm_transfer`, then ask the user to read the texted code and never guess it, ask the user to choose when a recipient is ambiguous, resolve "the usual" from `get_pending`, say "recipient" and "receive amount" rather than "beneficiary" or "payout", never speculate about why a transfer is under review, answer rules, documents and tax only from `get_help`, and explain refusals using the `resolution` text.
 
 **On screen**
 
@@ -432,16 +446,18 @@ The simulator stands in for Alexa+ because Alexa+ is not available in India. Its
 | Protocol panel (collapsible, right) | Live JSON-RPC: each request and response, the negotiated `protocolVersion`, latency per call in ms |
 | Ledger strip (top) | Balance, open quote, latest transfer status; updates live so the ticker is visible |
 | Phone (text messages) | The customer's simulated phone: step-up codes arrive as an SMS toast, which the user reads out |
+| Demo player | Play demo shows the demo beats one at a time (from `/sim/tools`, the same list scripted mode follows); Play all runs them in a row, each after the last reply is spoken |
+| Mode banner | In scripted mode, says no language model is configured and how to add one; flashes when a line falls outside the script |
 | Banner | "Simulated ledger: no real funds move. Mid-market rates are live; Acme pricing is simulated." always visible |
 | Dev controls (hidden behind `?dev=1`) | Fire alert, advance ticker, release the held transfer, reset seed: used only while recording |
 
-Serve the simulator as static files from the same Express app at `/`, so one App Runner service hosts both and the demo URL is a single link in the README.
+Serve the simulator as static files from the same Express app at `/`, so `pnpm dev` (or one App Runner service, if hosted) serves both.
 
-**Access on the public URL.** `/sim/*` requires `SIM_ACCESS_CODE` (given to judges in the Devpost text) and is rate-limited per IP, with caps on tool rounds and tokens per turn and a daily ceiling on Bedrock calls. `/dev/*` is off unless `DEV_CONTROLS_CODE` is set. The page sends the code in a header. Because the ledger is SQLite on the instance, App Runner runs exactly one instance (min 1, max 1), and every deploy starts from the seed.
+**Access.** Locally and on a public URL alike, `/sim/*` requires `SIM_ACCESS_CODE` (a local `.env` sets it; for a hosted copy it goes to judges in the Devpost text) and is rate-limited per IP, with caps on tool rounds and tokens per turn and a daily ceiling on Bedrock calls. `/dev/*` is off unless `DEV_CONTROLS_CODE` is set. The page sends the code in a header. Because the ledger is SQLite on the instance, App Runner runs exactly one instance (min 1, max 1), and every deploy starts from the seed.
 
 ## Hackathon step-by-step plan
 
-Submit by Oct 22, 2026; the Devpost deadline is Oct 23, 2026 at 12:00 PDT (00:30 IST on Oct 24). Judging runs Nov 9–20, 2026 (12:00 PT to 12:00 PT), and the project must stay available to judges, free and unrestricted, until it ends; winners are announced on or around Dec 3, 2026.
+Submit by Oct 22, 2026; the Devpost deadline is Oct 23, 2026 at 12:00 PDT (00:30 IST on Oct 24). Judging runs Nov 9–20, 2026 (12:00 PT to 12:00 PT), and the project must stay available to judges, free and unrestricted, until it ends; winners are announced on or around Dec 3, 2026. Per the FAQ, judges clone the repo and run it locally, without AWS credentials, so "available" means a public repo whose `README` run steps work on a clean clone; hosting is optional.
 
 &#91;embedded content: build plan · 6 phases, submit Oct 22\]
 
@@ -455,6 +471,7 @@ Each phase ends with a checkable milestone; if a phase slips, cut from phase 4 f
 - [ ] Install Node 22, pnpm, Alexa AI CLI; run `alexa-ai configure` and note what happens from India
 
 * Milestone: repo exists, first friction entry written
+* Status: done, except the Alexa AI CLI, which participants can't get (FAQ)
 
 **Phase 1 · Oct 3–6 · Protocol skeleton**
 
@@ -464,6 +481,7 @@ Each phase ends with a checkable milestone; if a phase slips, cut from phase 4 f
 - [ ] `protocol.test.ts` green
 
 * Milestone: `curl` initialize negotiates `2025-11-25`; CI badge green
+* Status: done (PR #1)
 
 **Phase 2 · Oct 7–11 · Core and 11 tools**
 
@@ -473,6 +491,7 @@ Each phase ends with a checkable milestone; if a phase slips, cut from phase 4 f
 - [ ] All six service test files green
 
 * Milestone: full send flow works through MCP Inspector with the refusal path visible
+* Status: done (PR #2)
 
 **Phase 3 · Oct 12–15 · Deploy and simulator**
 
@@ -482,29 +501,36 @@ Each phase ends with a checkable milestone; if a phase slips, cut from phase 4 f
 - [ ] Tune tool descriptions and the Bedrock system prompt until the six demo beats run clean three times in a row
 
 * Milestone: public URL runs the whole demo script
+* Status: done (PR #3), except the public deploy: the Dockerfile, CloudFormation template and OIDC deploy workflow are ready, but hosting turned out to be optional (FAQ), so the stack was not created and Phase 4's local milestone replaced this one
 
-**Phase 4 · Oct 16–18 · Alexa+ CLI attempt**
+**Phase 4 · Oct 4–5 · Polish: runs with nothing but Node**
 
-- [ ] `alexa-ai new mcp` against the public URL; fill `addon.json`; six icon sizes + one 600×900 carousel image; hosted privacy and terms pages
-- [ ] `alexa-ai deploy`; test in Amazon's web simulator if it is reachable; record whatever blocks as friction entries
-- [ ] Optional: extract `confirm.ts` into a small published npm package (`mcp-confirm-gate`) for the Open Source mini challenge
+The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get Amazon's Alexa+ CLI, MCP Toolkit or web simulator.
 
-* Milestone: either a deployed dev-stage add-on, or a documented account of exactly where region gating stopped it
+- [x] Scripted mode (`SIM_MODE`): the demo runs through the real tools with no language model and no AWS account
+- [x] Pluggable live model (`LLM_PROVIDER=bedrock|openai_compatible`)
+- [x] Cross-session context: `get_pending` (tool 14), with the prompt opening each conversation from it
+- [x] Agent Skill `skills/acme-remit/SKILL.md`; README run-locally section and threat model; `FEEDBACK.md` filled
+- [x] `mcp-confirm-gate` package for the Open Source mini challenge (published by the owner)
+
+* Milestone: on a clean clone with a `.env` of only `MCP_BEARER_TOKEN` and `SIM_ACCESS_CODE` and no AWS credentials, `pnpm install && pnpm db:seed && pnpm dev` starts, the simulator opens, and Play demo runs every beat end to end through real `POST /mcp` calls
+* Status: done (PR #4)
+* Next, as a separate task: an MCP Apps view (`ui://`), the track's linked resource alongside Agent Skills
 
 **Phase 5 · Oct 19–21 · Video and write-ups**
 
 - [ ] Record the 2:45 video (script in the submission checklist); upload to YouTube, public, English
-- [ ] README: what it does, architecture, real-vs-simulated table, run steps, test badge, demo URL
-- [ ] `FEEDBACK.md` per tool used (MCP SDK, Alexa AI CLI, Bedrock, App Runner, Devpost itself); feature requests with severity; friction log finalised
+- [ ] README: what it does, architecture, real-vs-simulated table, run steps that need no AWS account, test badge, threat model
+- [ ] `FEEDBACK.md` per tool used (MCP SDK, Bedrock, App Runner and CloudFormation, AWS CLI, Frankfurter, Devpost, Polly); feature requests with severity; friction log finalised
 
-* Milestone: a stranger can clone, seed, run tests and open the simulator in 10 minutes
+* Milestone: a stranger can clone, seed, run tests and play the whole demo in 10 minutes, with no AWS account
 
 **Oct 22 · Submit**
 
 - [ ] Fill every Devpost field; select Alexa+ track plus AWS Builder and Open Source mini challenges (a project can win at most one mini challenge)
 - [ ] Repo is public, so no reviewer invites needed; double-check the license file is at the root and visible at the top (README license badge)
 - [ ] Keep Oct 23 free for fixes only
-- [ ] Keep the App Runner service, the simulator access code and the Bedrock model available through Nov 20, 2026 (end of judging). Check the model's end-of-life date covers it: Nova 2 Lite no sooner than Dec 2, 2026; Claude Haiku 4.5 could retire before judging, so a Claude fallback should be Sonnet 5.5
+- [ ] Keep the repo public and its run steps working through Nov 20, 2026 (end of judging). If a hosted copy is also offered, keep the App Runner service, its access code and the Bedrock model available that long. Check the model's end-of-life date covers it: Nova 2 Lite no sooner than Dec 2, 2026; Claude Haiku 4.5 could retire before judging, so a Claude fallback should be Sonnet 5.5
 
 ## Submission checklist
 
@@ -512,13 +538,13 @@ Everything Devpost asks for, mapped to where it lives in the repo, plus the vide
 
 | Devpost field | What we submit | Lives in |
 | --- | --- | --- |
-| Text description | What it does, how it works, the three safety properties (read-back, single-use token, server-side limits), what is simulated | `README.md` top section |
-| GitHub repo | Public, MIT license at root, run steps, test badge, demo URL | repo root |
+| Text description | What it does, how it works, the four safety properties (read-back, single-use token, server-side limits, step-up code), cross-session context, what is simulated, and that it runs locally with no AWS account | `README.md` top section |
+| GitHub repo | Public, MIT license at root, run steps that need nothing but Node, test badge, Agent Skill | repo root |
 | Demo video | Under 3 min, YouTube public, English, no third-party music or logos | link in README |
-| Product feedback | One entry per tool: MCP TypeScript SDK, Alexa AI CLI and Add-on Agent Skill, Bedrock Converse tool use, App Runner, Devpost form; what it was used for, what worked, what did not, onboarding feel, would use again | `FEEDBACK.md` |
-| Tracks | Alexa+ primary; AWS Builder (Bedrock + App Runner, documented); Open Source (`mcp-confirm-gate` package or a PR to the MCP SDK docs) | form |
+| Product feedback | One entry per tool: MCP TypeScript SDK, Bedrock Converse, App Runner and CloudFormation, AWS CLI, Frankfurter, Devpost, Polly; what it was used for, what worked, what did not, onboarding feel, would use again | `FEEDBACK.md` |
+| Tracks | Alexa+ primary (simulator as the demo path, Agent Skill); AWS Builder (Bedrock and Polly in the simulator, App Runner infrastructure as code); Open Source (`mcp-confirm-gate` package) | form |
 | Pre-existing project | Not applicable: everything built in the window; say so | form |
-| Feature requests (optional) | Step-up auth before consequential tools (critical); India availability for add-on testing (important); per-tool latency metrics in the developer console (nice-to-have) | `FEEDBACK.md` |
+| Feature requests (optional) | Step-up auth before consequential tools (critical); India availability for add-on testing (important); a sandbox for participants to test Alexa+ add-ons (important); per-tool latency metrics in the developer console (nice-to-have) | `FEEDBACK.md` |
 | Friction log (optional, up to +10%) | Dated entries: task, steps, expected vs actual, severity, workaround, suggestion | `FRICTION_LOG.md` |
 
 **Video script, 2:45**
@@ -528,15 +554,16 @@ Built around the step-up moment, the strongest 15 seconds we have: the assistant
 | Time | Beat | On screen |
 | --- | --- | --- |
 | 0:00–0:12 | "Voice is the weakest way to approve a payment. Acme Remit is an Alexa+ add-on, a self-hosted MCP server, that makes it safe enough to send money home from the UAE to India." | The simulator, with the banner "Simulated ledger: no real funds move" in view |
-| 0:12–0:22 | "What's the rupee at today?" → Acme's rate and the weekly trend | Rate card; protocol panel shows `get_rate` |
-| 0:22–1:08 | **The send.** "Send 2,000 dirhams to Mum." → the read-back with recipient, bank, purpose, fee, card and guaranteed rupees, then "Shall I go ahead?" → "Yes." → "I've texted a code to your phone ending 4471." → the simulated phone shows the SMS (code, amount, recipient) → the user reads "four eight two nine one three" → confirmed, the orb gathers into a check mark, the receipt appears. Voice-over: "The code never reaches the model. Only someone holding the phone can approve, and the code works for this one payment." | Read-back card with its 5-minute countdown, then the "Check your phone" card and the phone toast; protocol panel: `prepare_transfer` (token masked), `confirm_transfer` "code texted · nothing sent yet", `confirm_transfer` with the masked code "moves money"; ledger strip updates |
-| 1:08–1:20 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal card and JSON in the panel: the server enforced it, not the model |
-| 1:20–1:30 | "Send 500 to Rahul." → "Do you mean your brother Rahul Nair, or your friend Rahul Menon?" | Choose card from `resolve_beneficiary` |
-| 1:30–1:48 | "Where's Mum's money?" → paid out, with the bank reference (UTR). "And the one to my NRE account?" → under review, upload an updated Emirates ID in the app, and no reason given | Receipt steps reach Paid out (dev control "Advance ticker" before the take); status card with the action needed |
+| 0:12–0:22 | "Hi, anything I should know?" → "Welcome back. Your 13,000 dirham transfer to your NRE account is under review: upload an updated Emirates ID by 9 October." Context from the ledger, across sessions | Protocol panel shows `get_pending` |
+| 0:22–0:30 | "What's the rupee at today?" → Acme's rate and the weekly trend | Rate card; protocol panel shows `get_rate` |
+| 0:30–1:14 | **The send.** "Send 2,000 dirhams to Mum." → the read-back with recipient, bank, purpose, fee, card and guaranteed rupees, then "Shall I go ahead?" → "Yes." → "I've texted a code to your phone ending 4471." → the simulated phone shows the SMS (code, amount, recipient) → the user reads "four eight two nine one three" → confirmed, the orb gathers into a check mark, the receipt appears. Voice-over: "The code never reaches the model. Only someone holding the phone can approve, and the code works for this one payment." | Read-back card with its 5-minute countdown, then the "Check your phone" card and the phone toast; protocol panel: `prepare_transfer` (token masked), `confirm_transfer` "code texted · nothing sent yet", `confirm_transfer` with the masked code "moves money"; ledger strip updates |
+| 1:14–1:24 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal card and JSON in the panel: the server enforced it, not the model |
+| 1:24–1:32 | "Send 500 to Rahul." → "Do you mean your brother Rahul Nair, or your friend Rahul Menon?" | Choose card from `resolve_beneficiary` |
+| 1:32–1:48 | "Where's Mum's money?" → paid out, with the bank reference (UTR). "And the one to my NRE account?" → under review, upload an updated Emirates ID in the app, and no reason given | Receipt steps reach Paid out (dev control "Advance ticker" before the take); status card with the action needed |
 | 1:48–2:04 | "Cancel the one to my NRE account." → the preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of the monthly limit free again | Cancel card, then the cancelled card; `cancel_transfer` twice in the panel; ledger strip updates |
-| 2:04–2:14 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's reviewed help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
-| 2:14–2:22 | "Tell me when the dirham hits 26.5." → alert set, then fired | Alert card, then the toast (dev control "Fire rate alert") |
-| 2:22–2:38 | How it's built: 13 MCP tools over Streamable HTTP, the step-up and token tests passing, the conversation evals, CI green, the App Runner URL, Bedrock (Nova 2 Lite) in the simulator and Polly for the voice | Editor, terminal and the README's security section |
+| 2:04–2:12 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's reviewed help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
+| 2:12–2:20 | "Tell me when the dirham hits 26.5." → alert set, then fired | Alert card, then the toast (dev control "Fire rate alert") |
+| 2:20–2:38 | How it's built: 14 MCP tools over Streamable HTTP, the step-up and token tests passing, the conversation evals, CI green, runs with nothing but Node (scripted mode), Bedrock (Nova 2 Lite) or any OpenAI-compatible model for the live assistant, Polly for the voice, and the Agent Skill | Editor, terminal and the README's threat model |
 | 2:38–2:45 | "The ledger module is the only thing between this and a licensed exchange house's backend." | README real-vs-simulated table |
 
-Record each beat separately against the live URL and stitch them. Reset the demo data before each take, and never record during a deploy (the SQLite ledger resets on every deploy). Judges aren't required to watch past three minutes, so nothing important lands after 2:40.
+Record each beat separately against a local run (`pnpm dev`) and stitch them; scripted mode follows exactly these lines, and a live model makes the same tool calls. Reset the demo data before each take (`pnpm db:seed`, or the dev control). If you record a hosted copy instead, never record during a deploy (the SQLite ledger resets on every deploy). Judges aren't required to watch past three minutes, so nothing important lands after 2:40.
