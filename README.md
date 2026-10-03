@@ -186,10 +186,18 @@ How the simulator hosts it:
 * It talks to the page only through the official SDK's `AppBridge` over `postMessage`.
 * Its tool calls go through the server-side relay. The browser never holds the Bearer secret, and a view may call only tools linked to it.
 
-**In another MCP Apps host:** run the server locally (`pnpm dev`) and add it as a Streamable HTTP server at `http://127.0.0.1:3000/mcp` with the header `Authorization: Bearer <MCP_BEARER_TOKEN>`. Then call `quote_transfer` or `track_transfer` (`{"latest": true}`). For example:
+**In another MCP Apps host:** run the server locally (`pnpm dev`) and connect the host to `http://127.0.0.1:3000/mcp` over Streamable HTTP with the header `Authorization: Bearer <MCP_BEARER_TOKEN>`. Then call `quote_transfer`, `prepare_transfer`, `confirm_transfer` (with the token, then type the code into the view) or `track_transfer` (`{"latest": true}`).
 
-* **MCPJam Inspector:** `npx @mcpjam/inspector@latest` (run it outside this folder; see `FRICTION_LOG.md`).
-* **VS Code** with GitHub Copilot agent mode, through `.vscode/mcp.json`:
+* **The official reference host** (verified on 2026-10-04: quote, read-back, code typed into the view, live receipt to Paid out). It connects from the browser, so it can't send the Bearer header and needs CORS headers. `scripts/host-proxy.mjs` adds both, for local testing only. The reference host runs on [Bun](https://bun.sh):
+
+  ```bash
+  MCP_BEARER_TOKEN=<from .env> node scripts/host-proxy.mjs        # :3001 -> :3000
+  git clone https://github.com/modelcontextprotocol/ext-apps && cd ext-apps/examples/basic-host
+  npm install && SERVERS='["http://localhost:3001/mcp"]' npm run start   # open http://localhost:8080
+  ```
+
+* **MCPJam Inspector:** `npx @mcpjam/inspector@latest --url http://127.0.0.1:3000/mcp --bearer <MCP_BEARER_TOKEN>` (run it outside this folder). Its local inspector now asks you to sign in with a free account before it opens; we did not test past that screen.
+* **VS Code** with GitHub Copilot agent mode (not tested here), through `.vscode/mcp.json`:
 
 ```json
 {
@@ -204,7 +212,7 @@ How the simulator hosts it:
 }
 ```
 
-We test the view in our own simulator, both in CI and in a headless browser. Other hosts implement the same spec, but we haven't run them in this repo. Hosts that only connect to remote servers, such as claude.ai, need a hosted copy over HTTPS.
+The view is tested in CI, in our simulator in a headless browser, and in the official reference host. Hosts that connect only to remote servers, such as claude.ai, need a hosted copy over HTTPS.
 
 The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTML file (`pnpm dev`, `pnpm build` and the tests run that step first), and the server serves it with `resources/read`. The contract is the "MCP Apps view" section of `docs/SPEC.md`.
 
