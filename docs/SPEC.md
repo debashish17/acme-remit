@@ -508,18 +508,20 @@ Everything Devpost asks for, mapped to where it lives in the repo, plus the vide
 
 **Video script, 2:45**
 
+Built around the step-up moment, the strongest 15 seconds we have: the assistant texts a code, the simulated phone shows it, the user reads it back, and only then does money move.
+
 | Time | Beat | On screen |
 | --- | --- | --- |
-| 0:00–0:20 | "Acme Remit is a self-hosted MCP server that lets Alexa+ handle UAE-to-India remittances safely. Everything runs on a simulated ledger; mid-market rates are live; the tool contract is production-shaped." | Architecture drawing, 5 s, then the simulator |
-| 0:20–0:38 | "What's the rupee at today?" → rate and trend. "Is that better than last week?" | Chat + protocol panel showing `get_rate` |
-| 0:38–0:55 | "How much would Mum get for 2,000 dirhams?" → bank deposit vs UPI vs cash pickup, and vs a typical bank | `compare_options` in the bubble |
-| 0:55–1:28 | "Send 2,000 dirhams to Mum." → quote → read-back with purpose, card and guaranteed rupees → "Yes." → code texted to the phone → user reads it out → confirmed | Panel shows `prepare_transfer` token then `confirm_transfer`; ledger strip shows SCREENING |
-| 1:28–1:42 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal JSON in the panel: the server enforced it, not the model |
-| 1:42–1:55 | "Send 500 to Rahul." → "Which Rahul, your brother or Rahul Menon?" | Candidates from `resolve_beneficiary` |
-| 1:55–2:10 | "Where's Mum's money?" → paid out, UTR read aloud. "And the one to my NRE account?" → under review, upload updated Emirates ID in the app | Ticker reached PAID\_OUT; RFI shown, no reason given |
-| 2:10–2:24 | "Cancel the one to my NRE account." → preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of monthly limit now free | `cancel_transfer` twice in the panel; ledger strip updates |
-| 2:24–2:30 | "Tell me when the dirham hits 23.5." → alert set, fired via dev control | Push-style toast |
-| 2:30–2:40 | Repo tour: tool list, token and limit tests passing, CI green, App Runner URL, Bedrock call in `/sim/chat` | Editor and terminal |
-| 2:40–2:45 | "The ledger module is the only thing between this and a licensed exchange house's backend." | README real-vs-simulated table |
+| 0:00–0:12 | "Voice is the weakest way to approve a payment. Acme Remit is an Alexa+ add-on, a self-hosted MCP server, that makes it safe enough to send money home from the UAE to India." | The simulator, with the banner "Simulated ledger: no real funds move" in view |
+| 0:12–0:22 | "What's the rupee at today?" → Acme's rate and the weekly trend | Rate card; protocol panel shows `get_rate` |
+| 0:22–1:08 | **The send.** "Send 2,000 dirhams to Mum." → the read-back with recipient, bank, purpose, fee, card and guaranteed rupees, then "Shall I go ahead?" → "Yes." → "I've texted a code to your phone ending 4471." → the simulated phone shows the SMS (code, amount, recipient) → the user reads "four eight two nine one three" → confirmed, the orb gathers into a check mark, the receipt appears. Voice-over: "The code never reaches the model. Only someone holding the phone can approve, and the code works for this one payment." | Read-back card with its 5-minute countdown, then the "Check your phone" card and the phone toast; protocol panel: `prepare_transfer` (token masked), `confirm_transfer` "code texted · nothing sent yet", `confirm_transfer` with the masked code "moves money"; ledger strip updates |
+| 1:08–1:20 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal card and JSON in the panel: the server enforced it, not the model |
+| 1:20–1:30 | "Send 500 to Rahul." → "Do you mean your brother Rahul Nair, or your friend Rahul Menon?" | Choose card from `resolve_beneficiary` |
+| 1:30–1:48 | "Where's Mum's money?" → paid out, with the bank reference (UTR). "And the one to my NRE account?" → under review, upload an updated Emirates ID in the app, and no reason given | Receipt steps reach Paid out (dev control "Advance ticker" before the take); status card with the action needed |
+| 1:48–2:04 | "Cancel the one to my NRE account." → the preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of the monthly limit free again | Cancel card, then the cancelled card; `cancel_transfer` twice in the panel; ledger strip updates |
+| 2:04–2:14 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's reviewed help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
+| 2:14–2:22 | "Tell me when the dirham hits 26.5." → alert set, then fired | Alert card, then the toast (dev control "Fire rate alert") |
+| 2:22–2:38 | How it's built: 13 MCP tools over Streamable HTTP, the step-up and token tests passing, the conversation evals, CI green, the App Runner URL, Bedrock (Nova 2 Lite) in the simulator and Polly for the voice | Editor, terminal and the README's security section |
+| 2:38–2:45 | "The ledger module is the only thing between this and a licensed exchange house's backend." | README real-vs-simulated table |
 
-Record in one take per beat and stitch; judges are not required to watch past three minutes, so nothing important lands after 2:40.
+Record each beat separately against the live URL and stitch them. Reset the demo data before each take, and never record during a deploy (the SQLite ledger resets on every deploy). Judges aren't required to watch past three minutes, so nothing important lands after 2:40.
