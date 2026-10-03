@@ -7,6 +7,7 @@ import { toWire } from "../wire.js";
 import type { ChatService } from "./chat.js";
 import { hasCode, RateLimiter, requireCode, type DailyBudget } from "./guards.js";
 import type { Exchange, McpRelay } from "./relay.js";
+import type { TtsService } from "./tts.js";
 
 /**
  * /sim/* serves the simulator page (behind SIM_ACCESS_CODE); /dev/* holds the recording controls
@@ -23,7 +24,11 @@ export interface SimDeps {
   devCode?: string | undefined;
   /** Wipes and reloads the demo seed. */
   reseed: () => void;
+  /** The assistant's Polly voice; omitted when POLLY_VOICE is "none" (the page uses the browser's). */
+  tts?: TtsService | undefined;
 }
+
+const SpeakBody = z.object({ text: z.string().trim().min(1).max(1500) });
 
 const ChatBody = z.object({
   conversation_id: z.string().max(64).optional(),
@@ -47,7 +52,12 @@ export function simRouter(deps: SimDeps): Router {
     try {
       relay.reset();
       const tools = await relay.listTools(exchanges);
-      res.json({ protocol_version: relay.protocolVersion, tools, exchanges });
+      res.json({
+        protocol_version: relay.protocolVersion,
+        tools,
+        exchanges,
+        tts: deps.tts ? deps.tts.voice : null,
+      });
     } catch (err) {
       res.status(502).json({ error: "mcp_unavailable", message: String(err), exchanges });
     }
@@ -64,6 +74,38 @@ export function simRouter(deps: SimDeps): Router {
     }
     res.json(await chat.send(body.data.conversation_id, body.data.text));
   });
+
+  // The assistant's voice: Polly audio plus word timings. 503 means "use the browser's voice".
+  router.post(
+    "/speak",
+    new RateLimiter(120, 10 * 60_000).middleware(devCaller),
+    async (req, res) => {
+      if (!deps.tts) {
+        res.status(503).json({ error: "tts_disabled", message: "Polly is off on this server." });
+        return;
+      }
+      const body = SpeakBody.safeParse(req.body);
+      if (!body.success) {
+        res
+          .status(400)
+          .json({ error: "bad_request", message: "Send { text } of 1-1500 characters." });
+        return;
+      }
+      try {
+        const speech = await deps.tts.speak(body.data.text);
+        if (!speech) {
+          res
+            .status(429)
+            .json({ error: "tts_budget", message: "Today's voice allowance is used." });
+          return;
+        }
+        res.json(speech);
+      } catch (err) {
+        console.error(`sim: Polly failed: ${err instanceof Error ? err.message : String(err)}`);
+        res.status(502).json({ error: "tts_failed", message: "The voice service is unavailable." });
+      }
+    },
+  );
 
   // The ledger strip polls this; `since` returns alerts fired after that time, for toasts.
   router.get("/state", new RateLimiter(600, 10 * 60_000).middleware(), async (req, res) => {

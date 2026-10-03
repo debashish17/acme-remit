@@ -15,6 +15,9 @@ describe("parseConfig", () => {
       DB_PATH: "./data/acme-remit.db",
       TICKER_MS: 15000,
       SIM_DAILY_BEDROCK_CALLS: 500,
+      POLLY_VOICE: "Kajal",
+      POLLY_ENGINE: "neural",
+      SIM_DAILY_TTS_CHARS: 100000,
     });
   });
 

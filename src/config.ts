@@ -16,6 +16,11 @@ const ConfigSchema = z.object({
   SIM_ACCESS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
   DEV_CONTROLS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
   SIM_DAILY_BEDROCK_CALLS: z.coerce.number().int().min(1).default(500),
+  // The assistant's voice in the simulator: an Amazon Polly voice id, or "none" for the browser's.
+  POLLY_VOICE: z.string().min(1).default("Kajal"),
+  POLLY_ENGINE: z.enum(["standard", "neural", "generative", "long-form"]).default("neural"),
+  // Characters Polly may bill per day (each reply bills its length twice: audio and word timings).
+  SIM_DAILY_TTS_CHARS: z.coerce.number().int().min(1).default(100000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -9,6 +9,7 @@ import { bedrockConverse, ChatService } from "./sim/chat.js";
 import { DailyBudget } from "./sim/guards.js";
 import { SYSTEM_PROMPT } from "./sim/prompt.js";
 import { McpRelay } from "./sim/relay.js";
+import { pollySynthesize, TtsService } from "./sim/tts.js";
 
 let config: Config;
 try {
@@ -47,6 +48,20 @@ const chat = new ChatService({
   budget,
 });
 
+const tts =
+  config.POLLY_VOICE === "none"
+    ? undefined
+    : new TtsService({
+        synthesize: pollySynthesize({
+          region: config.AWS_REGION,
+          voice: config.POLLY_VOICE,
+          engine: config.POLLY_ENGINE,
+        }),
+        voice: config.POLLY_VOICE,
+        engine: config.POLLY_ENGINE,
+        dailyChars: config.SIM_DAILY_TTS_CHARS,
+      });
+
 const app = createApp({
   bearerToken: config.MCP_BEARER_TOKEN,
   core,
@@ -56,6 +71,7 @@ const app = createApp({
     budget,
     accessCode: config.SIM_ACCESS_CODE,
     devCode: config.DEV_CONTROLS_CODE,
+    tts,
     reseed: () => {
       seed(db);
       chat.clear();
@@ -71,7 +87,7 @@ const httpServer = app.listen(config.PORT, (err) => {
   }
   console.log(`acme-remit listening on :${config.PORT} (POST /mcp, GET /health)`);
   console.log(
-    `simulator ${config.SIM_ACCESS_CODE ? "on" : "off (set SIM_ACCESS_CODE)"}; dev controls ${config.DEV_CONTROLS_CODE ? "on" : "off"}; model ${config.BEDROCK_MODEL_ID}`,
+    `simulator ${config.SIM_ACCESS_CODE ? "on" : "off (set SIM_ACCESS_CODE)"}; dev controls ${config.DEV_CONTROLS_CODE ? "on" : "off"}; model ${config.BEDROCK_MODEL_ID}; voice ${tts ? `Polly ${config.POLLY_VOICE} (${config.POLLY_ENGINE})` : "browser"}`,
   );
 });
 
