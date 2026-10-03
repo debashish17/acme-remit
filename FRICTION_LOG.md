@@ -196,3 +196,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor (the view itself worked; the hosts needed workarounds)
 - **Workaround:** `scripts/host-proxy.mjs`, a local proxy that adds the Bearer header and CORS. Through it the reference host ran the whole flow: quote, read-back (Confirm arrived as `ui/message`), the step-up code typed into the view, confirm through the host's `AppBridge`, the live receipt to Paid out, and `ui/update-model-context`. MCPJam is left at its sign-in screen.
 - **Suggestion:** MCPJam: keep a no-account mode for local servers, and support `--help`. ext-apps basic-host: accept headers per server in `SERVERS` (e.g. `{ "url": ..., "headers": {...} }`) so it can test authenticated servers.
+
+### 2026-10-04 · npm CLI publish (`npm publish`, registry.npmjs.org) · A first publish fails with a 403 that blames dependencies
+
+- **Task:** Publish `packages/mcp-confirm-gate` 0.1.0 for the Open Source mini challenge.
+- **Steps:** `npm login`, then `npm publish` from the package folder; `prepublishOnly` built it and the tarball was assembled (9 files, 7.0 kB).
+- **Expected:** The package is published, or a clear message saying the account needs two-factor authentication first.
+- **Actual:** `E403 403 Forbidden - PUT https://registry.npmjs.org/mcp-confirm-gate - Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.` The next lines say "In most cases, you or one of your dependencies are requesting a package version that is forbidden by your security policy, or on a server you do not have access to", which doesn't apply to a publish and sends you looking at dependencies. `npm login` had succeeded without mentioning that publishing needs 2FA.
+- **Severity:** minor (blocks publishing until 2FA is set up; about 5 minutes)
+- **Workaround:** Turned on 2FA on the npm account, then ran `npm publish` again. It printed an `npmjs.com/auth/cli/...` link, opened the browser to confirm, and published 0.1.0. We did not use a bypass-2FA token.
+- **Suggestion:** npm CLI: on this 403, drop the generic dependency text and link the 2FA settings page; have `npm login` warn when the account cannot publish. Registry: say whether the policy applies to all publishes or only new packages.

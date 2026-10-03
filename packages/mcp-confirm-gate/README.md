@@ -1,5 +1,11 @@
 # mcp-confirm-gate
 
+[![npm](https://img.shields.io/npm/v/mcp-confirm-gate)](https://www.npmjs.com/package/mcp-confirm-gate) [![License: MIT](https://img.shields.io/npm/l/mcp-confirm-gate)](LICENSE)
+
+```bash
+npm install mcp-confirm-gate
+```
+
 Single-use, caller-bound confirmation tokens with an optional out-of-band step-up code, for [MCP](https://modelcontextprotocol.io) tools that move money or do anything else that is hard to undo.
 
 An LLM agent should not be able to transfer money, delete data or send a message just because it decided to. This gate makes the human's consent something the server checks, not something the model promises.

@@ -218,7 +218,7 @@ The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTM
 
 ## Open source: `mcp-confirm-gate`
 
-The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. See [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate) (MIT, 13 tests, run in CI with the rest).
+The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. It is published on npm as [`mcp-confirm-gate`](https://www.npmjs.com/package/mcp-confirm-gate) (`npm install mcp-confirm-gate`, MIT, no runtime dependencies). The source and its 13 tests, run in CI with the rest, are in [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate).
 
 ## Threat model
 
