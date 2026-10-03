@@ -18,13 +18,14 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/server/index.ts",
-    "build": "tsup",
+    "dev": "tsx scripts/build-ui.ts && tsx watch src/server/index.ts",
+    "build": "tsx scripts/build-ui.ts && tsup",
+    "build:ui": "tsx scripts/build-ui.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . && prettier --check .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui",
     "format": "prettier --write .",
     "db:migrate": "tsx src/db/cli.ts migrate",
     "db:seed": "tsx src/db/cli.ts seed"

@@ -1,7 +1,9 @@
+import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Core } from "../../core/index.js";
 import { PAYOUT_METHODS, PURPOSES, type PayoutMethod, type Purpose } from "../../core/types.js";
+import { TRANSFER_VIEW_META } from "../apps.js";
 import { principalOf } from "../auth.js";
 import { aedAmount, safely, toMinor } from "../wire.js";
 import { MOVES_MONEY, READ_ONLY, WRITES_STATE, type Extra } from "./common.js";
@@ -13,7 +15,8 @@ const ref = z
   .describe("Transfer reference, e.g. ACM-240120.");
 
 export function registerTransferTools(server: McpServer, core: Core): void {
-  server.registerTool(
+  registerAppTool(
+    server,
     "quote_transfer",
     {
       title: "Quote a transfer",
@@ -32,6 +35,7 @@ export function registerTransferTools(server: McpServer, core: Core): void {
           .describe("Purpose of the transfer. Defaults to the recipient's usual purpose."),
       },
       annotations: WRITES_STATE,
+      _meta: TRANSFER_VIEW_META,
     },
     safely(
       "quote_transfer",
@@ -53,13 +57,15 @@ export function registerTransferTools(server: McpServer, core: Core): void {
     ),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "prepare_transfer",
     {
       title: "Prepare a transfer for confirmation",
       description: TOOL_DESCRIPTIONS.prepare_transfer,
       inputSchema: { quote_id: z.string().min(1).describe("quote_id from quote_transfer.") },
       annotations: WRITES_STATE,
+      _meta: TRANSFER_VIEW_META,
     },
     safely("prepare_transfer", ({ quote_id }: { quote_id: string }, extra: Extra) => {
       const { userId, callerId } = principalOf(extra.authInfo);
@@ -67,7 +73,8 @@ export function registerTransferTools(server: McpServer, core: Core): void {
     }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "confirm_transfer",
     {
       title: "Confirm and send a transfer",
@@ -87,6 +94,7 @@ export function registerTransferTools(server: McpServer, core: Core): void {
           ),
       },
       annotations: MOVES_MONEY,
+      _meta: TRANSFER_VIEW_META,
     },
     safely(
       "confirm_transfer",
@@ -100,7 +108,8 @@ export function registerTransferTools(server: McpServer, core: Core): void {
     ),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "track_transfer",
     {
       title: "Track a transfer",
@@ -110,6 +119,7 @@ export function registerTransferTools(server: McpServer, core: Core): void {
         latest: z.boolean().optional().describe("Track the most recent transfer instead."),
       },
       annotations: READ_ONLY,
+      _meta: TRANSFER_VIEW_META,
     },
     safely(
       "track_transfer",

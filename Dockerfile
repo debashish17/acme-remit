@@ -17,6 +17,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/mcp-confirm-gate/package.json packages/mcp-confirm-gate/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json tsup.config.ts ./
+COPY scripts ./scripts
 COPY src ./src
 RUN pnpm build
 

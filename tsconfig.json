@@ -25,5 +25,7 @@
     "outDir": "dist",
     "noEmit": true
   },
-  "include": ["src", "tests", "*.config.ts", "packages/*/src", "packages/*/test"]
+  "include": ["src", "tests", "scripts", "*.config.ts", "packages/*/src", "packages/*/test"],
+  // Browser code (DOM types) is checked by src/ui/tsconfig.json; model.ts is DOM-free and tested here.
+  "exclude": ["src/ui"]
 }

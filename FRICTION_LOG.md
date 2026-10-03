@@ -152,3 +152,23 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor (caught before any code; easy to miss)
 - **Workaround:** Pin `@modelcontextprotocol/ext-apps@^1.7.5`.
 - **Suggestion:** ext-apps: say on the README which major goes with which MCP SDK, or keep `latest` on the line that matches the stable SDK until v2 is the default. pnpm: fail (or warn loudly) on an unmet non-optional peer by default.
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps 1.7.5 + zod 4 · A one-card view bundles to 525 KB, half of it zod's translations
+
+- **Task:** Bundle the transfer view (`App` class plus about 300 lines of our code) into the single HTML file an MCP Apps resource must be.
+- **Steps:** esbuild (through tsup) with `platform: "browser"`, minified, all dependencies bundled; then an esbuild metafile to see where the bytes went.
+- **Expected:** Something near the SDK's own prebuilt `app-with-deps.js` (330 KB), or less with tree shaking.
+- **Actual:** 525 KB. 260 KB is `zod/v4/locales`: zod 4 classic re-exports every locale from its namespace (`export * as locales`), and the MCP SDK's schemas use that namespace, so no bundler can drop the ~50 languages. Another 144 KB is zod core. The simulator's host bundle (`AppBridge`) had the same shape.
+- **Severity:** minor (works; a heavy resource for every host to fetch and every iframe to parse)
+- **Workaround:** A 15-line esbuild plugin in `scripts/build-ui.ts` swaps `locales/index.js` for one that exports only `en` (English is zod's default; nothing picks a locale). 268 KB for the view, 247 KB for the host bridge.
+- **Suggestion:** ext-apps: build the browser entry points on `zod/mini`, or ship a size budget for `App`. zod: keep locales out of the classic namespace (opt in with `z.config(z.locales.xx())` from a separate entry).
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps 1.7.5 type declarations · Types go missing under `moduleResolution: "nodenext"`
+
+- **Task:** Typecheck the view and host code that imports `McpUiHostContext` and `AppBridge` from the SDK.
+- **Steps:** `tsc --noEmit` with our root settings (`module`/`moduleResolution` `nodenext`, as the server uses).
+- **Expected:** The types resolve, as the server-side entry (`/server`) does.
+- **Actual:** `error TS2460: Module '"@modelcontextprotocol/ext-apps"' declares 'McpUiHostContext' locally, but it is exported as 'ProtocolWithEvents'`, `Property 'close' does not exist on type 'AppBridge'`, and implicit `any`s in handler parameters. The package's `.d.ts` files use extensionless relative imports (`from "./types"`), which `nodenext` cannot follow, so the re-exports silently become nothing.
+- **Severity:** minor (confusing message that points at the wrong export)
+- **Workaround:** The browser code has its own `src/ui/tsconfig.json` with `module: esnext` and `moduleResolution: bundler` (it is bundled by esbuild anyway). Root typecheck excludes `src/ui`; `pnpm typecheck` runs both.
+- **Suggestion:** ext-apps: emit declarations with `.js` extensions (or run `attw` / `publint` in CI) so the package types work under every resolution mode it advertises.
