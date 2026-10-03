@@ -1,0 +1,53 @@
+{
+  "name": "mcp-confirm-gate",
+  "version": "0.1.0",
+  "description": "Single-use, caller-bound confirmation tokens with an optional out-of-band step-up code, for MCP tools that move money or do anything consequential.",
+  "license": "MIT",
+  "author": "debashish17",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "prepublishOnly": "tsc -p tsconfig.build.json"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "agents",
+    "tool-use",
+    "confirmation",
+    "consent",
+    "otp",
+    "step-up",
+    "payments"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debashish17/acme-remit.git",
+    "directory": "packages/mcp-confirm-gate"
+  },
+  "homepage": "https://github.com/debashish17/acme-remit/tree/main/packages/mcp-confirm-gate#readme",
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}
