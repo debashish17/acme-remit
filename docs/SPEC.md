@@ -553,7 +553,7 @@ The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get 
 - [x] Pluggable live model (`LLM_PROVIDER=bedrock|openai_compatible`)
 - [x] Cross-session context: `get_pending` (tool 14), with the prompt opening each conversation from it
 - [x] Agent Skill `skills/acme-remit/SKILL.md`; README run-locally section and threat model; `FEEDBACK.md` filled
-- [x] `mcp-confirm-gate` package for the Open Source mini challenge (published by the owner)
+- [x] `mcp-confirm-gate` package for the Open Source mini challenge, published to npm as 0.1.0 on Oct 3, 2026 by the owner
 
 * Milestone: on a clean clone with a `.env` of only `MCP_BEARER_TOKEN` and `SIM_ACCESS_CODE` and no AWS credentials, `pnpm install && pnpm db:seed && pnpm dev` starts, the simulator opens, and Play demo runs every beat end to end through real `POST /mcp` calls
 * Status: done (PR #4)
