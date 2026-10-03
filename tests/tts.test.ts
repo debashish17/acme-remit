@@ -80,6 +80,26 @@ describe("TtsService", () => {
   });
 });
 
+describe("TtsService failures", () => {
+  it("does not count a failed Polly request against the daily cap", async () => {
+    let fail = true;
+    const tts = new TtsService({
+      synthesize: async (text) => {
+        if (fail) throw new Error("CredentialsProviderError");
+        return { audio: new Uint8Array([1]), marks: marksFor(text) };
+      },
+      voice: "Kajal",
+      engine: "neural",
+      dailyChars: 100,
+    });
+    await expect(tts.speak("x".repeat(30))).rejects.toThrow("CredentialsProviderError");
+    expect(tts.charsLeftToday).toBe(100);
+    fail = false;
+    expect(await tts.speak("x".repeat(30))).not.toBeNull();
+    expect(tts.charsLeftToday).toBe(40);
+  });
+});
+
 describe("POST /sim/speak", () => {
   let core: Core | undefined;
   afterEach(() => core?.db.close());

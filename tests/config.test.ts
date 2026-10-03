@@ -18,6 +18,9 @@ describe("parseConfig", () => {
       POLLY_VOICE: "Kajal",
       POLLY_ENGINE: "neural",
       SIM_DAILY_TTS_CHARS: 100000,
+      LLM_PROVIDER: "bedrock",
+      LLM_BASE_URL: "https://api.openai.com/v1",
+      LLM_MODEL: "gpt-4o-mini",
     });
   });
 

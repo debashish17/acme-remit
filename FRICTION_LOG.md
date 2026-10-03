@@ -132,3 +132,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** major (blocks adding a dependency; `pnpm-lock.yaml` must change for CI's `--frozen-lockfile`)
 - **Workaround:** Run tools through Node directly (`node node_modules/vitest/vitest.mjs run`, `node node_modules/typescript/bin/tsc --noEmit`, `node node_modules/eslint/bin/eslint.js .`, `node node_modules/tsup/dist/cli-default.js`). Adding a dependency is left to the user (check Windows Security > Protection history, then `pnpm add` in their own terminal).
 - **Suggestion:** pnpm: fall back to the JS implementation when the native binary can't be spawned, and say why (the UNKNOWN errno hides an access-denied). Corepack: show where the downloaded binary lives and how to re-verify it.
+
+### 2026-10-04 · Devpost / Alexa+ track resources · The linked Alexa+ toolchain isn't available to participants
+
+- **Task:** Plan the Alexa+ integration (SPEC Phase 4: `alexa-ai configure`, `alexa-ai new mcp` against our server, `addon.json`, icons, `alexa-ai deploy`, test in Amazon's web simulator).
+- **Steps:** Read the Alexa+ track page and its linked resources, then the hackathon FAQ.
+- **Expected:** Participants can install the Alexa+ CLI and MCP Toolkit and test an add-on in Amazon's web simulator, as the track resources suggest.
+- **Actual:** The FAQ says participants cannot get the Alexa+ CLI, the MCP Toolkit or the web simulator. Hosting is not required either: judges clone the repo and run it locally, without AWS credentials or Bedrock access. Our plan had a whole phase built around the CLI, and our simulator assumed Bedrock.
+- **Severity:** major (it changed the demo path and the run requirements three weeks before the deadline)
+- **Workaround:** Our own web simulator is the demo path. A scripted mode runs the whole demo through the real MCP tools with no language model and no AWS account; Bedrock or any OpenAI-compatible key turns on the live model.
+- **Suggestion:** State on the track page from day one which Amazon tools participants can and can't use, and offer a sandbox for add-on testing.

@@ -2,11 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { RequestHandler } from "express";
+import pkg from "../../package.json" with { type: "json" };
 import type { Core } from "../core/index.js";
 import { registerTools } from "./tools/index.js";
 
 export const SERVER_NAME = "acme-remit";
-export const SERVER_VERSION = "1.0.0"; // keep in step with package.json
+/** From package.json at build time (the bundler inlines it), so the two cannot drift. */
+export const SERVER_VERSION: string = pkg.version;
 
 export function createMcpServer(core: Core): McpServer {
   const server = new McpServer(

@@ -55,6 +55,10 @@ export interface ChatReply {
   model: string;
   usage: { input_tokens: number; output_tokens: number };
   error?: { code: string; message: string };
+  /** "scripted" when no language model is configured (see scripted.ts). */
+  mode?: "scripted" | "live";
+  /** Shown to the user as a banner, e.g. that free text needs a language model. */
+  notice?: string;
 }
 
 interface Conversation {

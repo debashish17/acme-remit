@@ -113,8 +113,16 @@ export function registerTransferTools(server: McpServer, core: Core): void {
     },
     safely(
       "track_transfer",
-      ({ transfer_ref }: { transfer_ref?: string | undefined }, extra: Extra) =>
-        core.ledger.track(principalOf(extra.authInfo).userId, transfer_ref),
+      (
+        {
+          transfer_ref,
+          latest,
+        }: { transfer_ref?: string | undefined; latest?: boolean | undefined },
+        extra: Extra,
+      ) =>
+        // `latest: true` means the most recent transfer "instead" of a reference, as its
+        // description says, even if the model also sends a (possibly stale) transfer_ref.
+        core.ledger.track(principalOf(extra.authInfo).userId, latest ? undefined : transfer_ref),
     ),
   );
 

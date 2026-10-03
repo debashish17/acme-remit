@@ -1552,3 +1552,24 @@ body.noproto .proto {
   color: var(--ink2);
   font-size: 14px;
 }
+
+/* scripted mode: why free text is limited, flashed when a line falls outside the script */
+.mode-note {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 6px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--warn);
+  background: rgba(255, 197, 107, 0.08);
+  border-bottom: 1px solid rgba(255, 197, 107, 0.25);
+}
+.mode-note.flash {
+  animation: noteflash 1.2s ease-out;
+}
+@keyframes noteflash {
+  0% {
+    background: rgba(255, 197, 107, 0.35);
+  }
+}

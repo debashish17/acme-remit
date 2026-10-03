@@ -26,6 +26,8 @@ export const TOOL_DESCRIPTIONS = {
     "Show the user's KYC tier, remaining per-transaction, daily and monthly limits, cash-pickup caps, the reset date, and explain any refusal code in plain words with how to resolve it.",
   get_help:
     "Answer general questions about sending money with Acme from the UAE to India, from Acme's reviewed help content: documents, how sending works, recipients, payout methods, fees and rates, limits and tiers, tracking and receipts, cancellations and refunds, NRE and NRO accounts, the Liberalised Remittance Scheme (LRS), tax on money received in India, and staying safe. Use it instead of general knowledge for any rule, document or tax question; for the user's own numbers use check_limits or track_transfer.",
+  get_pending:
+    'Get what is waiting on the user since their last conversation: open quotes, transfers under review and what the user must do, rate alerts that fired recently, and the last transfer to each recipient. Call it once at the start of a conversation to mention anything that needs attention, and use last_by_recipient to resolve requests like "send the usual to Mum".',
   set_rate_alert:
     'Ask to be told when the AED to INR rate reaches a target. Use when the user says "tell me when" or "alert me if".',
 } as const;

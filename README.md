@@ -9,23 +9,26 @@ A self-hosted [MCP](https://modelcontextprotocol.io) server (spec 2025-11-25, St
 
 Built for the **Alexa+ track** of [Build, Ship, Shape: Amazon Developer Hackathon](https://amazonappdev2026.devpost.com/) (Devpost), with the AWS Builder and Open Source mini challenges.
 
+> **The simulator is the demo.** Amazon's Alexa+ toolchain (the Alexa+ CLI, MCP Toolkit and web simulator) is not available to hackathon participants, so this repo ships its own web simulator that stands in for Alexa+ and calls the MCP server exactly as Alexa+ would. Judges can run everything locally with **nothing but Node**: no AWS account, no API key (see [Run it locally with no AWS account](#run-it-locally-with-no-aws-account)).
+
 ## What it does
 
 One remittance provider's own Alexa+ add-on. A customer in Dubai can ask for today's rate, compare payout methods, send money to a saved recipient, track it to the UTR, cancel before payout, check limits, and set a rate alert — by voice.
 
-Three safety properties hold for every money movement:
+Four safety properties hold for every money movement:
 
 1. **Read-back before action.** `prepare_transfer` returns the exact sentence to read back; nothing moves until the user agrees.
 2. **Single-use, expiring tokens.** `confirm_transfer` and `cancel_transfer` only execute with a 5-minute, single-use token bound to the authenticated caller.
 3. **Server-side limits.** KYC-tier, daily, monthly and cash-pickup caps are enforced in core, not by the model.
+4. **Step-up code.** Confirming texts a one-time code to the customer's phone; money moves only when the user reads it back. The code never appears in a tool result, so the model cannot approve on its own.
 
 ## Spec
 
-`docs/SPEC.md` is the build contract: decisions, architecture, the 13-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
+`docs/SPEC.md` is the build contract: decisions, architecture, the 14-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
 
 ## Status
 
-Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 13 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
+Phase 4 (polish), on top of Phases 1–3. All 14 tools work over `POST /mcp` with server-enforced refusals, including a step-up code before money moves and `get_pending`, which carries context across conversations. The simulator runs the whole demo with no language model (scripted mode), or live with Amazon Bedrock or any OpenAI-compatible model. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
@@ -40,11 +43,40 @@ Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 
 | `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
 | `set_rate_alert` | Tell the user when the rate reaches a target | |
 | `get_help` | Acme's reviewed answers: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
+| `get_pending` | What's waiting since last time: open quotes, transfers under review with their RFI, fired alerts, and the last transfer per recipient ("the usual") | |
 
 ## Run
 
+### Run it locally with no AWS account
+
+You need Node 22 and pnpm (`corepack enable` gives you pnpm). Nothing else: no AWS account, no API key, no Docker.
+
 ```bash
+git clone https://github.com/debashish17/acme-remit.git
+cd acme-remit
 pnpm install
+# a .env with just two lines (any values; the token must be at least 16 characters)
+printf 'MCP_BEARER_TOKEN=local-demo-token-1234567890\nSIM_ACCESS_CODE=demo-code\n' > .env
+pnpm db:seed
+pnpm dev
+```
+
+Open http://localhost:3000, enter the access code (`demo-code` above), click **Play demo**, then **Play all**. The server log says `simulator mode: scripted (no AWS credentials found)`: with no model configured, the simulator follows the demo script and drives the real tools, so every step in the protocol panel is a genuine JSON-RPC call to `POST /mcp`. The step-up code arrives on the simulated phone; the assistant speaks with your browser's voice. Typing your own sentences needs a model (below); the page says so.
+
+On Windows PowerShell, create the `.env` with `Set-Content .env "MCP_BEARER_TOKEN=local-demo-token-1234567890`nSIM_ACCESS_CODE=demo-code"`.
+
+### Connect a live model (optional)
+
+| Model | How |
+| --- | --- |
+| Amazon Bedrock (default) | Have AWS credentials available (environment, `AWS_PROFILE`, or `aws login`) with access to Nova 2 Lite in us-east-1. The server detects them at startup and switches to the live model; the Polly voice also turns on. |
+| Any OpenAI-compatible endpoint | Add `LLM_PROVIDER=openai_compatible` and `LLM_API_KEY=...` to `.env`; optionally `LLM_BASE_URL` (default `https://api.openai.com/v1`; OpenRouter, Groq or a local Ollama work too) and `LLM_MODEL` (default `gpt-4o-mini`). |
+
+`SIM_MODE=scripted` or `SIM_MODE=bedrock` forces a mode (`bedrock` means "the live model through `LLM_PROVIDER`"). The model only ever reaches the MCP server through the same relay and tools, so the safety properties above hold in every mode.
+
+### Development
+
+```bash
 cp .env.example .env
 pnpm db:migrate && pnpm db:seed
 pnpm dev
@@ -55,7 +87,9 @@ pnpm dev
 
 ### The simulator
 
-Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. Talk with the orb, the mic button or Space (Chrome or Edge): hold while you speak, or tap once and it listens until you pause. Or type. The assistant speaks with Amazon Polly's Indian English neural voice (Kajal) through `POST /sim/speak`; the voice picker can switch to the browser's own voices, and the page falls back to them if Polly is unavailable (`POLLY_VOICE=none` turns Polly off). **Play demo** steps through the scripted beats one at a time. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens cut to their prefix. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret. `/sim/chat` calls Bedrock, so it needs AWS credentials (for example `AWS_PROFILE=<profile> pnpm dev`).
+Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. **Play demo** shows the demo lines one at a time; **Play all** runs them in a row, each after the last reply has been spoken. With a live model you can also talk with the orb, the mic button or Space (Chrome or Edge: hold while you speak, or tap once and it listens until you pause) or type anything. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens and codes masked. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret.
+
+The voice is the browser's own, or, when AWS credentials are available, Amazon Polly's Indian English neural voice (Kajal) through `POST /sim/speak`; the voice picker switches between them, and the page falls back to the browser's voice if Polly fails (`POLLY_VOICE=none` turns Polly off).
 
 For recording, `/?dev=1` adds dev controls (advance the ticker, release the held transfer, fire a rate alert, reset the demo data). They need `DEV_CONTROLS_CODE`, and `/dev/*` answers 404 when it is unset. With the dev code entered, chat turns skip the per-IP limit (the daily Bedrock cap still applies). Press H to hide the panels.
 
@@ -100,12 +134,15 @@ eval $I --method tools/list
 eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=2000 --tool-arg beneficiary_id=ben_01
 eval $I --method tools/call --tool-name prepare_transfer --tool-arg quote_id=<quote_id>
 eval $I --method tools/call --tool-name confirm_transfer --tool-arg confirmation_token=<confirmation_token>
+# -> STEP_UP_REQUIRED: a code was texted to the simulated phone; read it from /sim/state, then:
+curl -s "http://127.0.0.1:3000/sim/state?since=2000-01-01T00:00:00Z" -H "x-sim-code: $SIM_ACCESS_CODE" | grep -o 'Acme: [0-9]*'
+eval $I --method tools/call --tool-name confirm_transfer --tool-arg confirmation_token=<confirmation_token> --tool-arg otp=<code>
 eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=3000 --tool-arg beneficiary_id=ben_01   # refused: MONTHLY_LIMIT
 ```
 
-## Deploy to AWS App Runner
+## Deploy to AWS App Runner (optional)
 
-Everything is in `infra/acme-remit.yaml` (CloudFormation) and `.github/workflows/deploy.yml` (GitHub OIDC, no stored AWS keys). Region `us-east-1`.
+Hosting isn't needed to judge or run this project; this is for a public URL. Everything is in `infra/acme-remit.yaml` (CloudFormation) and `.github/workflows/deploy.yml` (GitHub OIDC, no stored AWS keys). Region `us-east-1`.
 
 1. **Create the stack** (console: CloudFormation → Create stack → upload `infra/acme-remit.yaml`), name `acme-remit`, `CreateService=false`, optionally `BudgetEmail`. It creates the ECR repo, generated secrets (`acme-remit/mcp-bearer-token`, `/sim-access-code`, `/dev-controls-code`), the App Runner roles and the GitHub deploy role.
 2. **Set the repository variable** `AWS_DEPLOY_ROLE_ARN` (GitHub → Settings → Secrets and variables → Actions → Variables) to the stack output `GitHubDeployRoleArn`.
@@ -121,11 +158,28 @@ The service runs exactly one instance (min = max = 1) because the SQLite ledger 
 | --- | --- | --- |
 | MCP server, Streamable HTTP, spec 2025-11-25 | yes | |
 | Bearer auth, token lifecycle, limit enforcement | yes | |
-| AWS App Runner deployment, Bedrock in the client | yes | |
+| The assistant: Amazon Bedrock or any OpenAI-compatible model | yes | scripted mode when none is configured (real tools, fixed script) |
+| AWS App Runner deployment (optional) | yes | |
 | Mid-market exchange rates | yes (Frankfurter) | |
 | Acme FX margin, fees, payout methods, KYC tier limits | | yes |
 | Card funding, ledger, screening, payout partner, UTRs | | yes |
 | SMS delivery of the step-up code (shown on a simulated phone) | | yes |
+
+## Agent Skill
+
+[`skills/acme-remit/SKILL.md`](skills/acme-remit/SKILL.md) is an [Agent Skill](https://agentskills.io) that teaches a coding agent to use this server safely: start with `get_pending`, resolve the recipient, quote, prepare, read back word for word, wait for the user's yes, confirm, ask for the texted code, confirm with it, track. It includes a reference for all 14 tools and a small script that calls a tool over Streamable HTTP.
+
+## Open source: `mcp-confirm-gate`
+
+The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. See [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate) (MIT, 13 tests, run in CI with the rest).
+
+## Threat model
+
+- **The step-up code proves possession of the phone, not secrecy from bystanders.** It is texted to the registered phone and read aloud, so anyone nearby hears it. It still shows that whoever approves holds the customer's phone right now. It is single-use, lasts 5 minutes, names the amount and recipient, and three wrong tries void the confirmation. A production add-on should prefer an approval push in the provider's app.
+- **The consent guard is the simulator's, not Alexa+'s.** The simulator refuses to spend a token in the turn that issued it. Real Alexa+ has no such guard, so there the server-side code is the defence against a model that prepares and confirms in one breath: the code is never in any tool result, so the model cannot supply it.
+- **`cancel_transfer` has no step-up, by design.** It still needs a read-back preview and its own single-use token, but it can only refund the full amount to the sender's own card, before payout. It cannot send money anywhere new.
+- **Everything else is enforced server-side for every client:** quotes lock the rate, tokens are single-use, expire in 5 minutes and are bound to the authenticated caller (never a session), limits are re-checked at confirm, and refusals are structured. One demo customer sits behind one Bearer token; production would use account linking (OAuth 2.1 with PKCE). The public simulator is metered (access code, per-IP limits, daily model and voice caps). Logs show token prefixes only, and codes are stored only as salted hashes.
+- **Out of scope:** voice biometrics, device signals, fraud scoring and real sanctions screening (modelled as "under review", with no reason ever given).
 
 ## License
 

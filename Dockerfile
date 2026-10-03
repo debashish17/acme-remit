@@ -13,6 +13,8 @@ RUN npm install -g pnpm@12.8.1 \
 # ---- build: full install, bundle with tsup (copies schema.sql + migrations into dist/) ----
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Workspace manifests too: the lockfile lists every workspace package (packages/mcp-confirm-gate).
+COPY packages/mcp-confirm-gate/package.json packages/mcp-confirm-gate/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json tsup.config.ts ./
 COPY src ./src
@@ -21,6 +23,8 @@ RUN pnpm build
 # ---- prod-deps: runtime dependencies only (tsup leaves node_modules packages external) ----
 FROM base AS prod-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Workspace manifests too: the lockfile lists every workspace package (packages/mcp-confirm-gate).
+COPY packages/mcp-confirm-gate/package.json packages/mcp-confirm-gate/
 RUN pnpm install --frozen-lockfile --prod
 
 # ---- runtime: no compilers, no dev dependencies, non-root ----

@@ -146,7 +146,13 @@ export class TtsService {
     if (this.used + billed > this.opts.dailyChars) return null;
     this.used += billed;
 
-    const raw = await this.opts.synthesize(text);
+    let raw: Awaited<ReturnType<Synthesize>>;
+    try {
+      raw = await this.opts.synthesize(text);
+    } catch (err) {
+      this.used -= billed; // a failed request is not billed, so it doesn't count against the cap
+      throw err;
+    }
     const speech: Speech = {
       audio: Buffer.from(raw.audio).toString("base64"),
       marks: parseMarks(text, raw.marks),
