@@ -127,6 +127,24 @@ The service runs exactly one instance (min = max = 1) because the SQLite ledger 
 | Card funding, ledger, screening, payout partner, UTRs | | yes |
 | SMS delivery of the step-up code (shown on a simulated phone) | | yes |
 
+## Security model, and what it doesn't cover
+
+**What the server enforces on every transfer, whoever the client is.** Money moves only through `confirm_transfer` and `cancel_transfer`. A transfer needs a quote (rate and fee locked), a read-back the user hears in full, a single-use token bound to the quote and to the authenticated caller (5 minutes), and then a step-up code. Limits are checked again at confirm. Every refusal is structured, so the model can explain it but cannot argue past it.
+
+**Step-up proves possession of the phone, not secrecy.** The 6-digit code is texted to the registered phone and read out loud. Anyone in the room hears it, so it shows that whoever is approving holds the customer's phone right now, not that the code stayed secret. It is one-time, lasts 5 minutes, is bound to one payment (the text names the amount and the recipient), and three wrong tries void the confirmation. The code never appears in a tool result, so the model cannot approve a payment by itself. A production version should prefer an approval push in the provider's app, where nothing is spoken.
+
+**The same-turn consent guard lives in the simulator, not the server.** The simulator stops a token being spent in the turn that issued it. Real Alexa+ won't run that guard, so there the step-up code is the server-side defence against a model that prepares and confirms in one breath: it cannot invent a code it was never given.
+
+**Cancelling has no step-up, on purpose.** A cancel still needs a read-back preview and its own single-use token, and it can only refund the full amount to the sender's own card, before the transfer reaches the payout partner. It cannot redirect money. If cancels ever had side effects beyond that refund, they should get the same check.
+
+**One demo customer behind one Bearer token.** A real Alexa+ add-on would use account linking (OAuth 2.1 with PKCE) so each customer has their own credentials; the caller binding of tokens is already per credential.
+
+**The public simulator is metered.** It needs an access code (given to judges), has per-IP rate limits, and caps Bedrock calls and Polly characters per day, so a public URL cannot run up an unbounded bill. Dev controls are off unless their own code is set.
+
+**Secrets and logs.** Secrets live in AWS Secrets Manager and nothing secret is in the repo. Logs show token prefixes only; step-up codes are stored as salted hashes and never logged; the protocol panel masks tokens and codes.
+
+**Not covered.** Voice biometrics, device signals, fraud scoring and real sanctions screening are out of scope (screening is modelled as a transfer under review, and no reason is ever given). Someone with many IP addresses could spread requests past the per-IP limit, but the daily caps still bound the cost. The ledger is SQLite on one App Runner instance and resets on every deploy, which suits a demo with simulated money and nothing more.
+
 ## License
 
 MIT — see `LICENSE`.
