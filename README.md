@@ -127,6 +127,10 @@ The service runs exactly one instance (min = max = 1) because the SQLite ledger 
 | Card funding, ledger, screening, payout partner, UTRs | | yes |
 | SMS delivery of the step-up code (shown on a simulated phone) | | yes |
 
+## Open source: `mcp-confirm-gate`
+
+The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. See [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate) (MIT, 13 tests, run in CI with the rest).
+
 ## Security model, and what it doesn't cover
 
 **What the server enforces on every transfer, whoever the client is.** Money moves only through `confirm_transfer` and `cancel_transfer`. A transfer needs a quote (rate and fee locked), a read-back the user hears in full, a single-use token bound to the quote and to the authenticated caller (5 minutes), and then a step-up code. Limits are checked again at confirm. Every refusal is structured, so the model can explain it but cannot argue past it.
