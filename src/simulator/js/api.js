@@ -75,5 +75,18 @@ export const api = {
   state: (since) => call(`/sim/state?since=${encodeURIComponent(since)}`),
   speak: (text) => call("/sim/speak", { method: "POST", body: { text }, devToo: true }),
 
+  // MCP Apps host (SPEC "MCP Apps view"): read a view, a view's tools/call, a view's context update.
+  appView: (uri) => call("/sim/app-view", { method: "POST", body: { uri } }),
+  appTool: (resourceUri, name, args) =>
+    call("/sim/app-tool", {
+      method: "POST",
+      body: { resource_uri: resourceUri, name, arguments: args ?? {} },
+    }),
+  appContext: (conversationId, text, structured) =>
+    call("/sim/app-context", {
+      method: "POST",
+      body: { conversation_id: conversationId, text, ...(structured ? { structured } : {}) },
+    }),
+
   dev: (action, body = {}) => call(`/dev/${action}`, { method: "POST", body, dev: true }),
 };

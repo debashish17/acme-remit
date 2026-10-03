@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import express, { type Express } from "express";
+import { uiDir } from "./apps.js";
 import type { Core } from "../core/index.js";
 import { bearerAuth } from "./auth.js";
 import { mcpPostHandler, methodNotAllowed } from "./mcp.js";
@@ -31,6 +33,17 @@ export function createApp({ bearerToken, core, sim }: AppOptions): Express {
   if (sim) {
     app.use("/sim", simRouter({ ...sim, core }));
     app.use("/dev", devRouter({ ...sim, core }));
+    // The page's MCP Apps host (AppBridge), built with the view by scripts/build-ui.ts.
+    app.get("/js/app-host.js", (_req, res) => {
+      const ui = uiDir();
+      if (!ui || !existsSync(`${ui}app-host.js`)) {
+        res.status(404).json({ error: "not_built", message: "Run pnpm build:ui." });
+        return;
+      }
+      res.setHeader("Cache-Control", "no-cache");
+      // .generated is a dot-directory, which send() ignores by default (FRICTION_LOG.md).
+      res.sendFile(`${ui}app-host.js`, { dotfiles: "allow" });
+    });
     // The simulator page at "/". Its API is /sim/*; the page never holds the Bearer secret.
     const dir = simulatorDir();
     if (dir) app.use(simulatorStatic(dir));

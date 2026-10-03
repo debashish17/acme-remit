@@ -172,3 +172,13 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor (confusing message that points at the wrong export)
 - **Workaround:** The browser code has its own `src/ui/tsconfig.json` with `module: esnext` and `moduleResolution: bundler` (it is bundled by esbuild anyway). Root typecheck excludes `src/ui`; `pnpm typecheck` runs both.
 - **Suggestion:** ext-apps: emit declarations with `.js` extensions (or run `attw` / `publint` in CI) so the package types work under every resolution mode it advertises.
+
+### 2026-10-03 · Express 5 `res.sendFile` · 404 for an absolute path inside a dot-directory
+
+- **Task:** Serve the simulator's MCP Apps host bundle, built to `.generated/ui/app-host.js`, at `/js/app-host.js`.
+- **Steps:** `res.sendFile(absolutePath)`, where the path comes from the server, not from the request; then load the page.
+- **Expected:** The file is sent: the app chose an absolute path, so there is no traversal to guard against.
+- **Actual:** `NotFoundError: Not Found`. `send` treats any path segment that starts with a dot as a dotfile and ignores it by default (`dotfiles: "ignore"`), even for the parent directory of an absolute path the app passed in. The error does not say why, so it looked like a wrong path.
+- **Severity:** minor
+- **Workaround:** `res.sendFile(path, { dotfiles: "allow" })` for that one route (the path is fixed; nothing from the request reaches it).
+- **Suggestion:** Express: apply the dotfiles rule only to the part of the path below `root` (or to request-derived segments), and say "dotfile ignored" in the error.

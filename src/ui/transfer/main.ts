@@ -176,6 +176,14 @@ function view(p: Phase): string {
 
 function render(): void {
   root.innerHTML = view(state.phase);
+  if (tornDown) {
+    // The host closed this view (a newer one took over) but may leave it on screen: freeze it.
+    root.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input").forEach((el) => {
+      el.disabled = true;
+    });
+    root.querySelector(".timer")?.remove();
+    return;
+  }
   const say = root.querySelector("[aria-label]")?.getAttribute("aria-label") ?? "";
   if (say !== lastAnnounced) {
     live.textContent = say;
@@ -298,7 +306,8 @@ setInterval(() => {
     el.classList.toggle("low", left <= 60);
     if (left === 0 && !el.closest(".expired")) expiredNow = true;
   });
-  if (expiredNow && (state.phase.kind === "readback" || state.phase.kind === "code")) render();
+  if (expiredNow && !tornDown && (state.phase.kind === "readback" || state.phase.kind === "code"))
+    render();
 }, 1000);
 
 function applyContext(ctx: McpUiHostContext | undefined): void {
@@ -321,6 +330,8 @@ app.onhostcontextchanged = (ctx) => applyContext(ctx);
 app.onteardown = async () => {
   tornDown = true;
   stopPolling();
+  document.body.classList.add("closed");
+  render();
   return {};
 };
 

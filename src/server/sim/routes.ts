@@ -7,7 +7,8 @@ import { toWire } from "../wire.js";
 import type { ChatEngine } from "./scripted.js";
 import { DEMO_BEATS } from "./scripted.js";
 import { hasCode, RateLimiter, requireCode, type DailyBudget } from "./guards.js";
-import type { Exchange, McpRelay } from "./relay.js";
+import { FrameStore, viewCsp } from "./frames.js";
+import { UI_MIME, viewOf, visibleTo, type Exchange, type McpRelay } from "./relay.js";
 import type { TtsService } from "./tts.js";
 
 /**
@@ -30,9 +31,25 @@ export interface SimDeps {
   reseed: () => void;
   /** The assistant's Polly voice; omitted when POLLY_VOICE is "none" (the page uses the browser's). */
   tts?: TtsService | undefined;
+  /** Single-use frames for MCP Apps views (SPEC "MCP Apps view"). */
+  frames?: FrameStore;
 }
 
 const SpeakBody = z.object({ text: z.string().trim().min(1).max(1500) });
+
+const AppViewBody = z.object({ uri: z.string().startsWith("ui://").max(200) });
+
+const AppToolBody = z.object({
+  resource_uri: z.string().startsWith("ui://").max(200),
+  name: z.string().min(1).max(64),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+const AppContextBody = z.object({
+  conversation_id: z.string().min(1).max(64),
+  text: z.string().trim().max(1000).default(""),
+  structured: z.record(z.string(), z.unknown()).optional(),
+});
 
 const ChatBody = z.object({
   conversation_id: z.string().max(64).optional(),
@@ -41,7 +58,23 @@ const ChatBody = z.object({
 
 export function simRouter(deps: SimDeps): Router {
   const { core, chat, relay, budget } = deps;
+  const frames = deps.frames ?? new FrameStore();
   const router = express.Router();
+
+  // An MCP Apps view's document, served once under the CSP its resource declared. This sits before
+  // the access-code check: an iframe's navigation can't send the header, so the single-use,
+  // one-minute id from POST /sim/app-view is the credential.
+  router.get("/app-frame/:id", new RateLimiter(120, 10 * 60_000).middleware(), (req, res) => {
+    const frame = frames.take(String(req.params.id));
+    if (!frame) {
+      res.status(404).type("text/plain").send("This view has expired. Ask again to see it.");
+      return;
+    }
+    res.setHeader("Content-Security-Policy", frame.csp);
+    res.setHeader("Cache-Control", "no-store");
+    res.type("html").send(frame.html);
+  });
+
   router.use(
     requireCode(deps.accessCode, "x-sim-code", {
       status: 503,
@@ -113,6 +146,83 @@ export function simRouter(deps: SimDeps): Router {
       }
     },
   );
+
+  // MCP Apps host, step 1: read a linked view with resources/read and park it for its iframe.
+  router.post("/app-view", new RateLimiter(60, 10 * 60_000).middleware(), async (req, res) => {
+    const body = AppViewBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: "bad_request", message: "Send { uri } of a ui:// resource." });
+      return;
+    }
+    const exchanges: Exchange[] = [];
+    try {
+      const tools = await relay.listTools(exchanges);
+      if (!tools.some((t) => viewOf(t) === body.data.uri)) {
+        res.status(404).json({ error: "unknown_view", message: "No tool links that view." });
+        return;
+      }
+      const content = await relay.readResource(body.data.uri, exchanges);
+      if (!content?.text || content.mimeType !== UI_MIME) {
+        res.status(502).json({ error: "bad_view", message: "Not an MCP Apps view.", exchanges });
+        return;
+      }
+      const ui = (content._meta?.ui ?? {}) as { csp?: unknown; prefersBorder?: unknown };
+      const id = frames.put(content.text, viewCsp(ui.csp));
+      res.json({
+        frame_url: `/sim/app-frame/${id}`,
+        prefers_border: ui.prefersBorder !== false,
+        exchanges,
+      });
+    } catch (err) {
+      res.status(502).json({ error: "mcp_unavailable", message: String(err), exchanges });
+    }
+  });
+
+  // MCP Apps host, step 2: a view's tools/call, through the relay so the page never holds the
+  // Bearer secret. Only tools visible to apps, and (stricter than the spec) linked to that view.
+  router.post("/app-tool", new RateLimiter(300, 10 * 60_000).middleware(), async (req, res) => {
+    const body = AppToolBody.safeParse(req.body);
+    if (!body.success) {
+      res
+        .status(400)
+        .json({ error: "bad_request", message: "Send { resource_uri, name, arguments }." });
+      return;
+    }
+    const { resource_uri, name } = body.data;
+    const exchanges: Exchange[] = [];
+    try {
+      await relay.listTools(exchanges);
+      const tool = relay.tool(name);
+      if (!tool || !visibleTo(tool, "app") || viewOf(tool) !== resource_uri) {
+        res.status(403).json({
+          error: "tool_not_allowed",
+          message: `The view ${resource_uri} may not call ${name}.`,
+        });
+        return;
+      }
+      const out = await relay.callTool(name, body.data.arguments, exchanges);
+      res.json({
+        result: out.view?.result ?? { structuredContent: out.structured, isError: out.isError },
+        exchanges,
+      });
+    } catch (err) {
+      res.status(502).json({ error: "mcp_unavailable", message: String(err), exchanges });
+    }
+  });
+
+  // MCP Apps host, step 3: ui/update-model-context, for the assistant's next turn.
+  router.post("/app-context", new RateLimiter(60, 10 * 60_000).middleware(), (req, res) => {
+    const body = AppContextBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: "bad_request", message: "Send { conversation_id, text }." });
+      return;
+    }
+    chat.noteFromApp(body.data.conversation_id, {
+      text: body.data.text,
+      structured: body.data.structured,
+    });
+    res.json({ ok: true });
+  });
 
   // The ledger strip polls this; `since` returns alerts fired after that time, for toasts.
   router.get("/state", new RateLimiter(600, 10 * 60_000).middleware(), async (req, res) => {

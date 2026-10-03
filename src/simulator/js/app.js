@@ -3,6 +3,7 @@
    the JSON-RPC traffic. State that matters lives on the server; the page only renders it. */
 
 import { api } from "./api.js";
+import { createAppHost } from "./apps.js";
 import * as C from "./cards.js";
 import { createOrb } from "./orb.js";
 import {
@@ -69,6 +70,22 @@ const S = {
   listening: null,
 };
 
+/* The page is an MCP Apps host: the transfer tools' results show in the server's own view
+   (ui://acme-remit/transfer) instead of the page's cards, which remain the fallback. */
+const apps = createAppHost({
+  theme: () => (body.classList.contains("mono") ? "mono" : "blue"),
+  onExchanges: appExchanges,
+  onConfirmed: transferConfirmed,
+  // ui/message from the view ("Yes." / "No."): the user's next turn, if the assistant is free.
+  sendText: (text) => {
+    if (S.busy || !S.connected) return false;
+    void send(text);
+    return true;
+  },
+  conversationId: () => S.conversationId,
+  fallback: (paired) => cardsFor(paired, { cardsOnly: true }).cards,
+});
+
 /* ---------- small helpers ---------- */
 const announce = (t) => {
   $("#sr").textContent = t;
@@ -125,6 +142,7 @@ function setTheme(th) {
   orb.setTheme(th);
   $$("[data-th]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.th === th)));
   local.set("acme.theme", th);
+  apps.retheme();
 }
 function setVoice(on) {
   voice.muted = !on;
@@ -376,16 +394,73 @@ function chime() {
   }
 }
 
-/** Builds the cards for one turn. Returns them plus the sentence the read-back card shows, if any. */
-function cardsFor(paired) {
+/** A transfer went through (by voice, or with the code typed in the view): the confirm moment. */
+function transferConfirmed(sc) {
+  settleConsent(`Confirmed · ${sc.transfer_ref}`);
+  S.stepUp?.settle(`Approved with the code from your phone · ${sc.transfer_ref}`);
+  S.stepUp = null;
+  S.lastCode = null;
+  orb.setTick(1);
+  setTimeout(() => orb.setTick(0), 2600);
+  chime();
+  void pollState();
+}
+
+/** Protocol rows for the MCP Apps view's own traffic (resources/read, its tools/call). */
+function appExchanges(title, exchanges, call) {
+  protoHeading(title, hhmm(new Date().toISOString()));
+  exchanges.forEach((x, i) => {
+    let flag = null;
+    if (x.method === "tools/call" && call) {
+      const r = call.sc?.refused;
+      if (r?.code === "STEP_UP_REQUIRED")
+        flag = { cls: "bl", text: "code texted · nothing sent yet" };
+      else if (r) flag = { cls: "rf", text: `refused ${r.code}` };
+      else if (MONEY_TOOLS.has(call.name))
+        flag = { cls: "m", text: "moves money · code typed in the view" };
+    }
+    const detail =
+      x.method === "resources/read"
+        ? `${x.request?.params?.uri ?? ""} · the view's HTML`
+        : exchangeDetail(x);
+    protoRow(
+      {
+        title: x.method === "tools/call" ? (call?.name ?? x.method) : x.method,
+        ms: x.ms,
+        detail,
+        flag,
+        x,
+      },
+      i,
+    );
+  });
+}
+
+/**
+ * Builds the cards for one turn. Returns them plus the sentence the read-back card shows, if any.
+ * Calls to tools that link an MCP Apps view go to the view instead (cardsOnly: the fallback).
+ */
+function cardsFor(paired, { cardsOnly = false } = {}) {
   const out = [];
+  const toView = [];
+  let viewAt = -1; // where the view cards go among this turn's cards
   let spoken = null; // { card, sentence }
   let guarded = false;
   const lookupOnly = paired.some(({ tc }) => /^(track|cancel)_transfer$/.test(tc.name));
   const prepared = paired.some(({ tc, sc }) => tc.name === "prepare_transfer" && sc && !sc.refused);
-  for (const { tc, x, sc } of paired) {
+  for (const p of paired) {
+    const { tc, x, sc } = p;
     if (tc.blocked) {
       guarded = true;
+      continue;
+    }
+    if (tc.app && !cardsOnly && apps.enabled) {
+      const r = tc.app.result?.structuredContent ?? {};
+      if (tc.name === "prepare_transfer" && !r.refused)
+        settleConsent("Replaced by a new confirmation");
+      if (tc.name === "confirm_transfer" && r.transfer_ref && !r.refused) transferConfirmed(r);
+      if (viewAt < 0) viewAt = out.length;
+      toView.push(p);
       continue;
     }
     if (!sc) continue;
@@ -435,15 +510,9 @@ function cardsFor(paired) {
           spoken = { card, sentence: sc.read_back };
           break;
         case "confirm_transfer":
-          settleConsent(`Confirmed · ${sc.transfer_ref}`);
-          S.stepUp?.settle(`Approved with the code from your phone · ${sc.transfer_ref}`);
-          S.stepUp = null;
-          S.lastCode = null;
+          transferConfirmed(sc);
           card = C.receiptCard(sc, { onCancel: (ref) => send(`Cancel transfer ${ref}.`) });
           S.receipts.set(sc.transfer_ref, card);
-          orb.setTick(1);
-          setTimeout(() => orb.setTick(0), 2600);
-          chime();
           break;
         case "cancel_transfer":
           if (sc.preview && sc.cancel_token) {
@@ -485,6 +554,7 @@ function cardsFor(paired) {
       out.push(card);
     }
   }
+  if (toView.length) out.splice(viewAt, 0, ...apps.place(toView));
   if (guarded) (spoken?.card ?? S.consent)?.showGuard?.();
   return { cards: out, spoken };
 }
@@ -934,6 +1004,7 @@ async function connect() {
     S.mode = t.mode ?? "bedrock";
     S.llm = t.llm ?? null;
     showMode();
+    void apps.preload(); // the MCP Apps host bridge, before the first transfer
     setPolly(pollyVoice ? (text) => api.speak(text) : null);
     fillVoices();
     metaLine();
@@ -994,6 +1065,7 @@ if (new URLSearchParams(location.search).get("dev") === "1") {
           S.conversationId = null;
           S.receipts.clear();
           S.consent = null;
+          apps.reset();
           log.replaceChildren();
           protoHeading("Demo data reset", hhmm(new Date().toISOString()));
           $("#chips").classList.remove("off");
