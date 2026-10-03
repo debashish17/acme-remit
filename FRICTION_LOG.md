@@ -142,3 +142,43 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** major (it changed the demo path and the run requirements three weeks before the deadline)
 - **Workaround:** Our own web simulator is the demo path. A scripted mode runs the whole demo through the real MCP tools with no language model and no AWS account; Bedrock or any OpenAI-compatible key turns on the live model.
 - **Suggestion:** State on the track page from day one which Amazon tools participants can and can't use, and offer a sandbox for add-on testing.
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps (MCP Apps SDK) · `latest` needs the v2 MCP SDK, and pnpm installed it anyway
+
+- **Task:** Add the official MCP Apps SDK for the transfer view (`ui://acme-remit/transfer`).
+- **Steps:** `pnpm add @modelcontextprotocol/ext-apps`, then read the installed package's `peerDependencies`.
+- **Expected:** The `latest` tag works with `@modelcontextprotocol/sdk` 1.x, which is the stable SDK and what the MCP Apps docs use in their examples (`McpServer` from `@modelcontextprotocol/sdk/server/mcp.js`).
+- **Actual:** `latest` is 2.0.3. Its peers are `@modelcontextprotocol/server`, `client` and `core` ^2.0.0, the split packages of MCP SDK v2. We are on `@modelcontextprotocol/sdk` 1.31 (CLAUDE.md pins 1.x). pnpm added 2.0.3 with no error, so the mismatch only showed when we read the peer list. The 1.x line (1.7.5) peers on `@modelcontextprotocol/sdk` ^1.29.0 and has the same `registerAppTool`, `registerAppResource`, `App` and `AppBridge` APIs.
+- **Severity:** minor (caught before any code; easy to miss)
+- **Workaround:** Pin `@modelcontextprotocol/ext-apps@^1.7.5`.
+- **Suggestion:** ext-apps: say on the README which major goes with which MCP SDK, or keep `latest` on the line that matches the stable SDK until v2 is the default. pnpm: fail (or warn loudly) on an unmet non-optional peer by default.
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps 1.7.5 + zod 4 · A one-card view bundles to 525 KB, half of it zod's translations
+
+- **Task:** Bundle the transfer view (`App` class plus about 300 lines of our code) into the single HTML file an MCP Apps resource must be.
+- **Steps:** esbuild (through tsup) with `platform: "browser"`, minified, all dependencies bundled; then an esbuild metafile to see where the bytes went.
+- **Expected:** Something near the SDK's own prebuilt `app-with-deps.js` (330 KB), or less with tree shaking.
+- **Actual:** 525 KB. 260 KB is `zod/v4/locales`: zod 4 classic re-exports every locale from its namespace (`export * as locales`), and the MCP SDK's schemas use that namespace, so no bundler can drop the ~50 languages. Another 144 KB is zod core. The simulator's host bundle (`AppBridge`) had the same shape.
+- **Severity:** minor (works; a heavy resource for every host to fetch and every iframe to parse)
+- **Workaround:** A 15-line esbuild plugin in `scripts/build-ui.ts` swaps `locales/index.js` for one that exports only `en` (English is zod's default; nothing picks a locale). 268 KB for the view, 247 KB for the host bridge.
+- **Suggestion:** ext-apps: build the browser entry points on `zod/mini`, or ship a size budget for `App`. zod: keep locales out of the classic namespace (opt in with `z.config(z.locales.xx())` from a separate entry).
+
+### 2026-10-03 · @modelcontextprotocol/ext-apps 1.7.5 type declarations · Types go missing under `moduleResolution: "nodenext"`
+
+- **Task:** Typecheck the view and host code that imports `McpUiHostContext` and `AppBridge` from the SDK.
+- **Steps:** `tsc --noEmit` with our root settings (`module`/`moduleResolution` `nodenext`, as the server uses).
+- **Expected:** The types resolve, as the server-side entry (`/server`) does.
+- **Actual:** `error TS2460: Module '"@modelcontextprotocol/ext-apps"' declares 'McpUiHostContext' locally, but it is exported as 'ProtocolWithEvents'`, `Property 'close' does not exist on type 'AppBridge'`, and implicit `any`s in handler parameters. The package's `.d.ts` files use extensionless relative imports (`from "./types"`), which `nodenext` cannot follow, so the re-exports silently become nothing.
+- **Severity:** minor (confusing message that points at the wrong export)
+- **Workaround:** The browser code has its own `src/ui/tsconfig.json` with `module: esnext` and `moduleResolution: bundler` (it is bundled by esbuild anyway). Root typecheck excludes `src/ui`; `pnpm typecheck` runs both.
+- **Suggestion:** ext-apps: emit declarations with `.js` extensions (or run `attw` / `publint` in CI) so the package types work under every resolution mode it advertises.
+
+### 2026-10-03 · Express 5 `res.sendFile` · 404 for an absolute path inside a dot-directory
+
+- **Task:** Serve the simulator's MCP Apps host bundle, built to `.generated/ui/app-host.js`, at `/js/app-host.js`.
+- **Steps:** `res.sendFile(absolutePath)`, where the path comes from the server, not from the request; then load the page.
+- **Expected:** The file is sent: the app chose an absolute path, so there is no traversal to guard against.
+- **Actual:** `NotFoundError: Not Found`. `send` treats any path segment that starts with a dot as a dotfile and ignores it by default (`dotfiles: "ignore"`), even for the parent directory of an absolute path the app passed in. The error does not say why, so it looked like a wrong path.
+- **Severity:** minor
+- **Workaround:** `res.sendFile(path, { dotfiles: "allow" })` for that one route (the path is fixed; nothing from the request reaches it).
+- **Suggestion:** Express: apply the dotfiles rule only to the part of the path below `root` (or to request-derived segments), and say "dotfile ignored" in the error.

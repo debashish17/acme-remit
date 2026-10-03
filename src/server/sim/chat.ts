@@ -9,7 +9,8 @@ import {
   type Tool,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DailyBudget } from "./guards.js";
-import type { Exchange, McpRelay, McpTool } from "./relay.js";
+import { visibleTo, type Exchange, type McpRelay, type McpTool, type ViewCall } from "./relay.js";
+import type { AppNote } from "./scripted.js";
 
 /**
  * POST /sim/chat: the Bedrock Converse tool-use loop. Conversations live here, server-side and in
@@ -45,6 +46,8 @@ export interface ToolCallSummary {
   error?: boolean;
   /** Stopped by the consent guard before reaching /mcp. */
   blocked?: boolean;
+  /** For a tool that links an MCP Apps view: what the page's view needs (SPEC "MCP Apps view"). */
+  app?: ViewCall;
 }
 
 export interface ChatReply {
@@ -68,6 +71,8 @@ interface Conversation {
   turn: number;
   /** Confirmation and cancel tokens issued in this conversation, by the turn that issued them. */
   issuedIn: Map<string, number>;
+  /** What an MCP Apps view reported since the last turn (ui/update-model-context). */
+  appNotes?: string[];
 }
 
 /**
@@ -148,20 +153,22 @@ export function compactResult(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/** Bedrock tool specs from the MCP tools/list result. */
+/** Bedrock tool specs from the MCP tools/list result; tools only views may call are left out. */
 export function toBedrockTools(tools: McpTool[]): Tool[] {
-  return tools.map((t) => {
-    // Bedrock wants the bare JSON Schema object, without the draft marker.
-    const schema: Record<string, unknown> = { ...t.inputSchema };
-    delete schema.$schema;
-    return {
-      toolSpec: {
-        name: t.name,
-        description: t.description ?? t.name,
-        inputSchema: { json: schema as Record<string, never> },
-      },
-    };
-  });
+  return tools
+    .filter((t) => visibleTo(t, "model"))
+    .map((t) => {
+      // Bedrock wants the bare JSON Schema object, without the draft marker.
+      const schema: Record<string, unknown> = { ...t.inputSchema };
+      delete schema.$schema;
+      return {
+        toolSpec: {
+          name: t.name,
+          description: t.description ?? t.name,
+          inputSchema: { json: schema as Record<string, never> },
+        },
+      };
+    });
 }
 
 export class ChatService {
@@ -186,6 +193,16 @@ export class ChatService {
     this.conversations.clear();
   }
 
+  /**
+   * Context from an MCP Apps view (e.g. a transfer confirmed with a code typed in it), given to
+   * the model with the user's next turn. It is data the view reported, so it is labelled as such.
+   */
+  noteFromApp(conversationId: string, note: AppNote): void {
+    const convo = this.conversations.get(conversationId);
+    if (!convo || !note.text) return;
+    convo.appNotes = [...(convo.appNotes ?? []), note.text.slice(0, 600)].slice(-3);
+  }
+
   async send(conversationId: string | undefined, text: string): Promise<ChatReply> {
     this.expire();
     const id =
@@ -199,7 +216,17 @@ export class ChatService {
     this.conversations.set(id, convo);
     const turn = ++convo.turn;
     const turnStart = convo.messages.length;
-    convo.messages.push({ role: "user", content: [{ text }] });
+    const notes = convo.appNotes ?? [];
+    delete convo.appNotes;
+    convo.messages.push({
+      role: "user",
+      content: [
+        ...notes.map((n) => ({
+          text: `[From the transfer view on screen, not the user's words] ${n}`,
+        })),
+        { text },
+      ],
+    });
     // An aborted turn is dropped whole, so the stored history keeps alternating user/assistant.
     const abort = (r: string, error: NonNullable<ChatReply["error"]>) => {
       convo.messages.length = turnStart;
@@ -299,6 +326,7 @@ export class ChatService {
             ms: exchanges.slice(before).reduce((sum, e) => sum + e.ms, 0),
             ...(refused ? { refused } : {}),
             ...(outcome.isError ? { error: true } : {}),
+            ...(outcome.view ? { app: outcome.view } : {}),
           });
           results.push({
             toolResult: {

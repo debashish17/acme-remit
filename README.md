@@ -20,7 +20,7 @@ Four safety properties hold for every money movement:
 1. **Read-back before action.** `prepare_transfer` returns the exact sentence to read back; nothing moves until the user agrees.
 2. **Single-use, expiring tokens.** `confirm_transfer` and `cancel_transfer` only execute with a 5-minute, single-use token bound to the authenticated caller.
 3. **Server-side limits.** KYC-tier, daily, monthly and cash-pickup caps are enforced in core, not by the model.
-4. **Step-up code.** Confirming texts a one-time code to the customer's phone; money moves only when the user reads it back. The code never appears in a tool result, so the model cannot approve on its own.
+4. **Step-up code.** Confirming texts a one-time code to the customer's phone; money moves only when the user reads it back, or types it into the transfer view, where it goes to the server without passing through the model. The code never appears in a tool result, so the model cannot approve on its own.
 
 ## Spec
 
@@ -28,7 +28,7 @@ Four safety properties hold for every money movement:
 
 ## Status
 
-Phase 4 (polish), on top of Phases 1–3. All 14 tools work over `POST /mcp` with server-enforced refusals, including a step-up code before money moves and `get_pending`, which carries context across conversations. The simulator runs the whole demo with no language model (scripted mode), or live with Amazon Bedrock or any OpenAI-compatible model. See the phase plan in `docs/SPEC.md`.
+Phase 4b (MCP Apps view), on top of Phases 1–4. All 14 tools work over `POST /mcp` with server-enforced refusals, including a step-up code before money moves and `get_pending`, which carries context across conversations. The transfer tools show an [MCP Apps](#mcp-apps-view) view. The simulator runs the whole demo with no language model (scripted mode), or live with Amazon Bedrock or any OpenAI-compatible model. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
@@ -169,6 +169,45 @@ The service runs exactly one instance (min = max = 1) because the SQLite ledger 
 
 [`skills/acme-remit/SKILL.md`](skills/acme-remit/SKILL.md) is an [Agent Skill](https://agentskills.io) that teaches a coding agent to use this server safely: start with `get_pending`, resolve the recipient, quote, prepare, read back word for word, wait for the user's yes, confirm, ask for the texted code, confirm with it, track. It includes a reference for all 14 tools and a small script that calls a tool over Streamable HTTP.
 
+## MCP Apps view
+
+[MCP Apps](https://github.com/modelcontextprotocol/ext-apps) is the official MCP extension that lets a tool show an interactive view next to the conversation. This server ships one, `ui://acme-remit/transfer`, linked from `quote_transfer`, `prepare_transfer`, `confirm_transfer` and `track_transfer` through `_meta.ui.resourceUri`. Hosts without MCP Apps ignore the link and see the same 14 tools. The view moves through four stages:
+
+1. **Quote:** what the recipient receives, the fee and the rate-lock countdown.
+2. **Read-back:** the token's 5-minute countdown. **Confirm** and **Not now** send "Yes." or "No." into the conversation, so consent stays with the assistant.
+3. **Code entry:** the code texted to the phone goes from the view to `confirm_transfer` through the host, never through the model.
+4. **Receipt:** it polls `track_transfer` until the money is paid out. Under review shows the RFI, never a reason.
+
+**In the simulator** (nothing to install): the page is an MCP Apps host. Send money and the view appears in the conversation. The protocol panel shows its `resources/read` and its own `tools/call` rows, marked "App view", with the code masked. Type the code from the phone toast into the view, or read it out as before.
+
+How the simulator hosts it:
+
+* The view runs in an iframe sandboxed to `allow-scripts` (an opaque origin), served once from a one-minute URL under a CSP with no network access.
+* It talks to the page only through the official SDK's `AppBridge` over `postMessage`.
+* Its tool calls go through the server-side relay. The browser never holds the Bearer secret, and a view may call only tools linked to it.
+
+**In another MCP Apps host:** run the server locally (`pnpm dev`) and add it as a Streamable HTTP server at `http://127.0.0.1:3000/mcp` with the header `Authorization: Bearer <MCP_BEARER_TOKEN>`. Then call `quote_transfer` or `track_transfer` (`{"latest": true}`). For example:
+
+* **MCPJam Inspector:** `npx @mcpjam/inspector@latest` (run it outside this folder; see `FRICTION_LOG.md`).
+* **VS Code** with GitHub Copilot agent mode, through `.vscode/mcp.json`:
+
+```json
+{
+  "inputs": [{ "id": "acme-token", "type": "promptString", "description": "MCP_BEARER_TOKEN from .env", "password": true }],
+  "servers": {
+    "acme-remit": {
+      "type": "http",
+      "url": "http://127.0.0.1:3000/mcp",
+      "headers": { "Authorization": "Bearer ${input:acme-token}" }
+    }
+  }
+}
+```
+
+We test the view in our own simulator, both in CI and in a headless browser. Other hosts implement the same spec, but we haven't run them in this repo. Hosts that only connect to remote servers, such as claude.ai, need a hosted copy over HTTPS.
+
+The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTML file (`pnpm dev`, `pnpm build` and the tests run that step first), and the server serves it with `resources/read`. The contract is the "MCP Apps view" section of `docs/SPEC.md`.
+
 ## Open source: `mcp-confirm-gate`
 
 The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. See [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate) (MIT, 13 tests, run in CI with the rest).
@@ -176,6 +215,7 @@ The confirmation pattern behind every transfer here, extracted as a small, depen
 ## Threat model
 
 - **The step-up code proves possession of the phone, not secrecy from bystanders.** It is texted to the registered phone and read aloud, so anyone nearby hears it. It still shows that whoever approves holds the customer's phone right now. It is single-use, lasts 5 minutes, names the amount and recipient, and three wrong tries void the confirmation. A production add-on should prefer an approval push in the provider's app.
+- **The transfer view holds the confirmation token, as the model does.** An MCP Apps view receives each linked tool's result, including the token it needs to send the code. Without the code from the phone, the token cannot move money. Typing the code into the view also keeps it out of the conversation, and away from anyone who would hear it read aloud.
 - **The consent guard is the simulator's, not Alexa+'s.** The simulator refuses to spend a token in the turn that issued it. Real Alexa+ has no such guard, so there the server-side code is the defence against a model that prepares and confirms in one breath: the code is never in any tool result, so the model cannot supply it.
 - **`cancel_transfer` has no step-up, by design.** It still needs a read-back preview and its own single-use token, but it can only refund the full amount to the sender's own card, before payout. It cannot send money anywhere new.
 - **Everything else is enforced server-side for every client:** quotes lock the rate, tokens are single-use, expire in 5 minutes and are bound to the authenticated caller (never a session), limits are re-checked at confirm, and refusals are structured. One demo customer sits behind one Bearer token; production would use account linking (OAuth 2.1 with PKCE). The public simulator is metered (access code, per-IP limits, daily model and voice caps). Logs show token prefixes only, and codes are stored only as salted hashes.

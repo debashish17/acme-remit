@@ -30,10 +30,18 @@ export const DEMO_BEATS = [
 export const SCRIPTED_NOTICE =
   'This demo is running without a language model (no AWS credentials or LLM key configured), so it can only follow the demo script. Use Play demo or the suggestions, or see README "Run it locally" to connect Bedrock or an OpenAI-compatible model.';
 
+/** What an MCP Apps view reported with ui/update-model-context. */
+export interface AppNote {
+  text: string;
+  structured?: Record<string, unknown> | undefined;
+}
+
 /** The interface ChatService and ScriptedChat share. */
 export interface ChatEngine {
   send(conversationId: string | undefined, text: string): Promise<ChatReply>;
   clear(): void;
+  /** Context from an MCP Apps view, for the next turn (SPEC "MCP Apps view"). */
+  noteFromApp(conversationId: string, note: AppNote): void;
 }
 
 type Json = Record<string, unknown>;
@@ -169,6 +177,12 @@ export class ScriptedChat implements ChatEngine {
     this.convos.clear();
   }
 
+  /** A transfer confirmed in the view: nothing is waiting for a yes or a code any more. */
+  noteFromApp(conversationId: string, note: AppNote): void {
+    const convo = this.convos.get(conversationId);
+    if (convo && note.structured?.event === "transfer_confirmed") delete convo.confirm;
+  }
+
   async send(conversationId: string | undefined, text: string): Promise<ChatReply> {
     for (const [k, c] of this.convos)
       if (this.now() - c.updatedAt > 30 * 60_000) this.convos.delete(k);
@@ -188,6 +202,7 @@ export class ScriptedChat implements ChatEngine {
         ms: exchanges.slice(before).reduce((s, e) => s + e.ms, 0),
         ...(refused ? { refused } : {}),
         ...(out.isError && !refused ? { error: true } : {}),
+        ...(out.view ? { app: out.view } : {}),
       });
       return out.structured;
     };

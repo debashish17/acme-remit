@@ -16,5 +16,7 @@ export default defineConfig({
     cpSync("src/db/migrations", "dist/migrations", { recursive: true });
     // The simulator page is served as static files from dist/simulator.
     cpSync("src/simulator", "dist/simulator", { recursive: true });
+    // The MCP Apps view and the simulator's host bridge, built by scripts/build-ui.ts.
+    cpSync(".generated/ui", "dist/ui", { recursive: true });
   },
 });

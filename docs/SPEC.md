@@ -455,6 +455,48 @@ Serve the simulator as static files from the same Express app at `/`, so `pnpm d
 
 **Access.** Locally and on a public URL alike, `/sim/*` requires `SIM_ACCESS_CODE` (a local `.env` sets it; for a hosted copy it goes to judges in the Devpost text) and is rate-limited per IP, with caps on tool rounds and tokens per turn and a daily ceiling on Bedrock calls. `/dev/*` is off unless `DEV_CONTROLS_CODE` is set. The page sends the code in a header. Because the ledger is SQLite on the instance, App Runner runs exactly one instance (min 1, max 1), and every deploy starts from the seed.
 
+## MCP Apps view
+
+MCP Apps (the official MCP extension `io.modelcontextprotocol/ui`, stable spec 2026-01-26) lets a tool name an interactive HTML view that the host renders in a sandboxed iframe next to the conversation. It is one of the Alexa+ track's linked resources, with Agent Skills. Acme Remit ships one view, `ui://acme-remit/transfer`: a screen for the transfer the assistant is talking through, with one job the voice channel does badly, which is taking the step-up code.
+
+**Resource.** `ui://acme-remit/transfer`, mimeType `text/html;profile=mcp-app`, one self-contained HTML document (script and styles inline) built from `src/ui/transfer/` with the official SDK's `App` class (`@modelcontextprotocol/ext-apps` 1.x). `_meta.ui`: an empty `csp` (the view makes no network requests; it talks only to its host over `postMessage`), no extra permissions, `prefersBorder: true`. It follows the host's theme and style variables when the host sends them.
+
+**Linked tools.** `quote_transfer`, `prepare_transfer`, `confirm_transfer` and `track_transfer` carry `_meta.ui.resourceUri: "ui://acme-remit/transfer"`, with the default visibility (model and app). Their descriptions, input schemas and results do not change, and a host without MCP Apps ignores `_meta`, so every other client sees the same 14 tools. The transport is stateless, so `tools/list` never sees the client's capabilities; the server always declares the link.
+
+| Tool result the view receives | The view shows | What the view can do |
+| --- | --- | --- |
+| `quote_transfer` | Quote: send amount, fee, our rate, the guaranteed receive amount, the rate-lock countdown, warnings | Nothing; quoting is the assistant's job |
+| `prepare_transfer` | The read-back: recipient, bank, purpose, card charged, receive amount, and the token's 5-minute countdown | **Confirm** and **Not now** send "Yes." or "No." into the conversation (`ui/message`), so consent stays with the assistant and the consent guard |
+| `confirm_transfer` refused `STEP_UP_REQUIRED` | Code entry: six digit boxes, the phone it went to, tries left, the code's countdown | Sends the code with `tools/call` `confirm_transfer {confirmation_token, otp}` straight through the host. **The code never passes through the model.** `OTP_INVALID` keeps the boxes open with the tries left |
+| `confirm_transfer` success, or `track_transfer` | Live receipt: reference, receive amount, ETA and the status steps | Polls `track_transfer` through the host every few seconds until a final status (10 minutes at most). Under review shows `customer_label` "Under review" and the RFI, never a reason |
+| Any refusal | The refusal's `resolution` and its numbers | Nothing |
+
+After a confirm from the view, the view tells the assistant with `ui/update-model-context` (reference and status, never the code), so the next turn knows the money has gone.
+
+**Security.** The view receives the tool result as the model does, so it holds the confirmation token; without the code from the phone the token cannot move money. The rules a host must keep, and the simulator does:
+
+* Render the view in an iframe sandboxed with `allow-scripts` only (an opaque origin), under a CSP built from `_meta.ui.csp`; with ours empty, the view can make no requests.
+* Let the view call only tools whose visibility includes "app". The simulator is stricter: only tools linked to the same view.
+* Never give the view the Bearer secret. In the simulator, view calls go through the relay like the model's, are rate-limited, and appear in the protocol panel marked "app view", with the code masked.
+
+**The simulator as a host.** The simulator page is an MCP Apps host, so the view runs with nothing but Node:
+
+1. It reads each tool's `_meta.ui.resourceUri` from `tools/list`, and its relay announces the extension in `initialize` (`capabilities.extensions["io.modelcontextprotocol/ui"]`).
+2. When a linked tool runs, the page asks `POST /sim/app-view`. The relay fetches the view with `resources/read` (a real MCP call, shown in the protocol panel) and the server returns a single-use frame URL (60 seconds) that serves that HTML under the CSP built from the resource's `_meta.ui`.
+3. The page connects to the view with the SDK's `AppBridge` over `postMessage` and sends it `tool-input` and `tool-result` for each linked call. One view follows one transfer and updates in place; a new transfer gets a new view.
+4. View tool calls go to `POST /sim/app-tool` and context updates to `POST /sim/app-context`. The live model sees the context in its next turn; scripted mode clears the confirmation it was waiting on.
+5. When the view can't load, the page falls back to its own cards.
+
+Any other MCP Apps host renders the same view from the same server, for example MCPJam or VS Code; the README shows how.
+
+**Tests.**
+
+* `resources/list` and `resources/read` return the view with mimeType `text/html;profile=mcp-app`, and the HTML loads nothing from outside.
+* `tools/list` links exactly the four tools; descriptions and schemas are unchanged.
+* `/sim/app-tool` refuses tools not linked to the view and takes a code entered in the view through to a confirmed transfer, with the code masked in the panel.
+* `/sim/app-context` reaches the next turn.
+* The frame URL works once, expires, and carries the view's CSP.
+
 ## Hackathon step-by-step plan
 
 Submit by Oct 22, 2026; the Devpost deadline is Oct 23, 2026 at 12:00 PDT (00:30 IST on Oct 24). Judging runs Nov 9–20, 2026 (12:00 PT to 12:00 PT), and the project must stay available to judges, free and unrestricted, until it ends; winners are announced on or around Dec 3, 2026. Per the FAQ, judges clone the repo and run it locally, without AWS credentials, so "available" means a public repo whose `README` run steps work on a clean clone; hosting is optional.
@@ -515,7 +557,16 @@ The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get 
 
 * Milestone: on a clean clone with a `.env` of only `MCP_BEARER_TOKEN` and `SIM_ACCESS_CODE` and no AWS credentials, `pnpm install && pnpm db:seed && pnpm dev` starts, the simulator opens, and Play demo runs every beat end to end through real `POST /mcp` calls
 * Status: done (PR #4)
-* Next, as a separate task: an MCP Apps view (`ui://`), the track's linked resource alongside Agent Skills
+
+**Phase 4b · Oct 3–8 · MCP Apps view**
+
+- [x] `ui://acme-remit/transfer` resource and the `_meta.ui` link on the four transfer tools (see "MCP Apps view")
+- [x] The view: quote, read-back with countdown, code entry, live receipt, built with the official `App` class into one HTML file
+- [x] The simulator as an MCP Apps host: `resources/read` through the relay, sandboxed frame, `AppBridge`, `/sim/app-tool` and `/sim/app-context`
+- [x] README: the view, and how to open it in another MCP Apps host
+
+* Milestone: in the simulator, with nothing but Node, sending money shows `ui://acme-remit/transfer` moving from quote to read-back with countdown to code entry to live receipt; a code typed in the view reaches the server through the host's `tools/call`, never through the model; `pnpm test`, `pnpm lint` and `pnpm typecheck` are green
+* Status: done. Checked in CI and in a headless browser (DOM only): read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
 
 **Phase 5 · Oct 19–21 · Video and write-ups**
 
