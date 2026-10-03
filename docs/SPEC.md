@@ -560,12 +560,13 @@ The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get 
 
 **Phase 4b · Oct 3–8 · MCP Apps view**
 
-- [ ] `ui://acme-remit/transfer` resource and the `_meta.ui` link on the four transfer tools (see "MCP Apps view")
-- [ ] The view: quote, read-back with countdown, code entry, live receipt, built with the official `App` class into one HTML file
-- [ ] The simulator as an MCP Apps host: `resources/read` through the relay, sandboxed frame, `AppBridge`, `/sim/app-tool` and `/sim/app-context`
-- [ ] README: the view, and how to open it in another MCP Apps host
+- [x] `ui://acme-remit/transfer` resource and the `_meta.ui` link on the four transfer tools (see "MCP Apps view")
+- [x] The view: quote, read-back with countdown, code entry, live receipt, built with the official `App` class into one HTML file
+- [x] The simulator as an MCP Apps host: `resources/read` through the relay, sandboxed frame, `AppBridge`, `/sim/app-tool` and `/sim/app-context`
+- [x] README: the view, and how to open it in another MCP Apps host
 
 * Milestone: in the simulator, with nothing but Node, sending money shows `ui://acme-remit/transfer` moving from quote to read-back with countdown to code entry to live receipt; a code typed in the view reaches the server through the host's `tools/call`, never through the model; `pnpm test`, `pnpm lint` and `pnpm typecheck` are green
+* Status: done. Checked in CI and in a headless browser (DOM only): read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
 
 **Phase 5 · Oct 19–21 · Video and write-ups**
 
