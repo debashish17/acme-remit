@@ -381,6 +381,7 @@ function cardsFor(paired) {
   const out = [];
   let spoken = null; // { card, sentence }
   let guarded = false;
+  const lookupOnly = paired.some(({ tc }) => /^(track|cancel)_transfer$/.test(tc.name));
   const prepared = paired.some(({ tc, sc }) => tc.name === "prepare_transfer" && sc && !sc.refused);
   for (const { tc, x, sc } of paired) {
     if (tc.blocked) {
@@ -465,7 +466,8 @@ function cardsFor(paired) {
           card = C.statusCard(sc);
           break;
         case "get_transfer_history":
-          card = C.historyCard(sc);
+          // A lookup on the way to tracking or cancelling one transfer isn't worth a card.
+          if (!lookupOnly) card = C.historyCard(sc);
           break;
         case "check_limits":
           card = C.limitsCard(sc);
