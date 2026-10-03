@@ -67,11 +67,34 @@ export const FX_MARGIN_BP: Record<string, number> = {
 /** CBUAE peg, fixed since 1997. ECB/Frankfurter publish no AED, so AED/INR is derived from USD/INR. */
 export const AED_PER_USD = 3.6725;
 
+/**
+ * Gulf currencies fixed to the US dollar by their central banks (units per USD). ECB publishes none
+ * of them, so their rates are derived from the USD rates. The Kuwaiti dinar follows a basket, so it
+ * is not here.
+ */
+export const USD_PEGS: Record<string, number> = {
+  AED: AED_PER_USD,
+  SAR: 3.75,
+  QAR: 3.64,
+  OMR: 0.3845,
+  BHD: 0.376,
+};
+
+/** The one corridor Acme sends money in. Every other pair get_rate quotes is for information. */
+export const SENDING_PAIR = "AED/INR";
+
 /** Illustrative "typical bank" benchmark for compare_options, derived from the same mid. */
 export const BENCHMARK = { name: "typical bank", marginBp: 250, feeMinor: 2500 };
 
 export const QUOTE_LOCK_MINUTES = 30;
 export const TOKEN_TTL_MINUTES = 5;
+
+/**
+ * Step-up before money moves (like 3-D Secure on a card payment): a 6-digit code by SMS to the
+ * registered phone, valid 5 minutes and never past the confirmation token, 3 wrong tries void
+ * the confirmation, and at most 3 codes are sent per confirmation.
+ */
+export const OTP = { digits: 6, ttlMinutes: 5, maxAttempts: 3, maxSends: 3 } as const;
 export const RATES_CACHE_MINUTES = 15;
 
 /** Relationships for which a gift is not flagged as taxable in India. */

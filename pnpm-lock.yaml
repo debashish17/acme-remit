@@ -169,6 +169,9 @@ importers:
       '@aws-sdk/client-bedrock-runtime':
         specifier: ^3.1143.0
         version: 3.1143.0
+      '@aws-sdk/client-polly':
+        specifier: ^3.1145.0
+        version: 3.1145.0
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(zod@4.6.5)
@@ -229,6 +232,10 @@ packages:
 
   '@aws-sdk/client-bedrock-runtime@3.1143.0':
     resolution: {integrity: sha512-NqcVvmeesUZ53mv1wsRi7eohqm0KKdQxfmdaCaWTjWqw4X5gYVAPfy4REVXNs7J0w0eM4I5fctSuS5MhTI14kQ==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-polly@3.1145.0':
+    resolution: {integrity: sha512-ydfbS9HDLKNAioirhgwX1aQwlCkYR0vrBr2N9qxkX/B72UVrpuvI2ycuUL0vm9UCOLv+0kgiFdcvLgb8WFSbBw==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.978.1':
@@ -2213,6 +2220,19 @@ snapshots:
       '@aws-sdk/middleware-eventstream': 3.972.30
       '@aws-sdk/middleware-websocket': 3.972.54
       '@aws-sdk/token-providers': 3.1143.0
+      '@aws-sdk/types': 3.974.6
+      '@smithy/core': 3.35.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
+  '@aws-sdk/client-polly@3.1145.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.1
+      '@aws-sdk/credential-provider-node': 3.972.84
+      '@aws-sdk/eventstream-handler-node': 3.972.35
+      '@aws-sdk/middleware-eventstream': 3.972.30
       '@aws-sdk/types': 3.974.6
       '@smithy/core': 3.35.0
       '@smithy/fetch-http-handler': 5.8.0

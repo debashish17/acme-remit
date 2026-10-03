@@ -6,33 +6,47 @@ import { READ_ONLY } from "./common.js";
 import { TOOL_DESCRIPTIONS } from "./descriptions.js";
 
 const from = z.literal("AED").default("AED").describe("Send currency. Only AED is supported.");
-const to = z.literal("INR").default("INR").describe("Receive currency. Only INR is supported.");
+const code = (dflt: string, what: string) =>
+  z
+    .string()
+    .regex(/^[A-Za-z]{3}$/, "a 3-letter ISO 4217 code")
+    .default(dflt)
+    .describe(
+      `${what} currency: ISO 4217 code such as AED, INR, USD, GBP or PHP. Default ${dflt}.`,
+    );
 
 const getRateOutput = {
-  corridor: z.string().describe("Send and receive country pair, e.g. AE-IN"),
+  corridor: z.string().optional().describe("Send and receive country pair, e.g. AE-IN"),
   pair: z.string(),
-  customer_rate: z.number().describe("Acme's rate: rupees per dirham the recipient gets"),
+  sendable: z.boolean().describe("True only for AED/INR, the pair Acme sends money in"),
+  customer_rate: z
+    .number()
+    .optional()
+    .describe("Acme's rate: rupees per dirham the recipient gets (AED/INR only)"),
   mid_rate: z.number().describe("Mid-market rate"),
-  fx_margin_pct: z.number(),
+  fx_margin_pct: z.number().optional(),
   week_high: z.number(),
   week_low: z.number(),
   trend: z.string(),
   as_of: z.string(),
   source: z.string(),
+  note: z.string().optional(),
 };
 
 export function registerRateTools(server: McpServer, core: Core): void {
   server.registerTool(
     "get_rate",
     {
-      title: "Get AED to INR rate",
+      title: "Get an exchange rate",
       description: TOOL_DESCRIPTIONS.get_rate,
-      inputSchema: { from, to },
+      inputSchema: { from: code("AED", "From"), to: code("INR", "To") },
       outputSchema: getRateOutput,
       annotations: READ_ONLY,
     },
-    safely("get_rate", ({ from: f, to: t }: { from: string; to: string }) =>
-      core.rates.snapshot(f, t),
+    safely(
+      "get_rate",
+      ({ from: f, to: t }: { from: string; to: string }) => core.rates.snapshot(f, t),
+      { refusalIsError: true },
     ),
   );
 

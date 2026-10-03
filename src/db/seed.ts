@@ -28,6 +28,8 @@ const TABLES = [
   "transfers",
   "transfer_events",
   "alerts",
+  "step_up_challenges",
+  "sms_outbox",
 ] as const;
 
 interface SeedBeneficiary {
@@ -242,8 +244,8 @@ export function seed(db: Db, now: Date = new Date()): SeedSummary {
     for (const t of TABLES) db.prepare(`DELETE FROM ${t}`).run();
 
     db.prepare(
-      "INSERT INTO users (id, name, country, kyc_tier, card_last4) VALUES (?, ?, ?, ?, ?)",
-    ).run(USER_ID, "Priya Nair", "AE", "Verified", "8812");
+      "INSERT INTO users (id, name, country, kyc_tier, card_last4, phone_last4) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(USER_ID, "Priya Nair", "AE", "Verified", "8812", "4471");
 
     const addedAt = iso(at(now, -12, 1));
     const insBen = db.prepare(`INSERT INTO beneficiaries

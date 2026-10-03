@@ -31,6 +31,12 @@ async function tool(name: string, args: Record<string, unknown> = {}) {
   return res.body.result.structuredContent as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
+/** The code from the latest text on the simulated phone. */
+function latestCode(): string {
+  const body = core.outbox.since("usr_priya", "2000-01-01T00:00:00Z").at(-1)?.body ?? "";
+  return /\b(\d{6})\b/.exec(body)?.[1] ?? "";
+}
+
 describe("demo script over MCP", () => {
   let token = "";
 
@@ -70,15 +76,21 @@ describe("demo script over MCP", () => {
     token = prep.confirmation_token;
   });
 
-  it('"Yes": confirm once; a replay is refused', async () => {
-    const done = await tool("confirm_transfer", { confirmation_token: token });
+  it('"Yes", then the texted code: confirm once; a replay is refused', async () => {
+    const step = await tool("confirm_transfer", { confirmation_token: token });
+    expect(step).toMatchObject({
+      refused: { code: "STEP_UP_REQUIRED", method: "sms_otp", sent_to: "phone ending 4471" },
+    });
+    expect(card.charges).toHaveLength(0);
+    const otp = latestCode();
+    const done = await tool("confirm_transfer", { confirmation_token: token, otp });
     expect(done).toMatchObject({
       transfer_ref: "ACM-240121",
       status: "SCREENING",
       receive_amount: 51598.09,
       charged: 2000,
     });
-    const replay = await tool("confirm_transfer", { confirmation_token: token });
+    const replay = await tool("confirm_transfer", { confirmation_token: token, otp });
     expect(replay).toMatchObject({ refused: { code: "TOKEN_USED" } });
     expect(card.charges).toHaveLength(1);
   });

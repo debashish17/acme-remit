@@ -82,3 +82,53 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** major (the design's only live dependency did not cover the corridor)
 - **Workaround:** Pending a decision; candidate is USD→INR from Frankfurter divided by the CBUAE peg of 3.6725 AED/USD, with `RATES_URL` pointed straight at `https://api.frankfurter.dev/v1`.
 - **Suggestion:** Return a 400 naming the unsupported currency and listing `/currencies` instead of a bare "not found", and document the `.app` → `.dev/v1` move on the landing page.
+
+### 2026-10-02 · Amazon Bedrock docs · Nova 2 Lite model card contradicts itself on the model id
+
+- **Task:** Confirm the Bedrock model id for the simulator before the first Converse call (Phase 3).
+- **Steps:** Read the Nova 2 Lite model card (docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-lite.html).
+- **Expected:** One id that works in us-east-1.
+- **Actual:** The Regional availability table marks us-east-1 **In-Region: no**, Geo and Global: yes, so only the inference profiles `us.amazon.nova-2-lite-v1:0` / `global.amazon.nova-2-lite-v1:0` work there. The sample code on the same page calls `modelId='amazon.nova-2-lite-v1:0'` with `region_name='us-east-1'`. A third-party catalogue reports the bare id returns a validation error. Our SPEC default was the bare id.
+- **Severity:** minor (caught before the first call)
+- **Workaround:** Default `BEDROCK_MODEL_ID` to `us.amazon.nova-2-lite-v1:0`; the App Runner role must allow the inference profile and the foundation model in its destination Regions (us-east-1, us-east-2, us-west-2).
+- **Suggestion:** Make the sample code use the inference-profile id wherever In-Region is unavailable, and name the profile in the error message when a bare id is not invocable.
+
+### 2026-10-02 · AWS CLI 2.37.8 (Agent Toolkit) · `list-available-skills` crashes on the Windows console code page
+
+- **Task:** Verify the AWS Agent Toolkit install (setup step 6) on Windows 11, PowerShell 5.1.
+- **Steps:** `aws agent-toolkit list-available-skills --region us-east-1 --profile acme-remit --output json`.
+- **Expected:** The JSON catalog of skills.
+- **Actual:** The service call succeeds and output starts streaming, then the CLI aborts with exit code 255: `aws: [ERROR]: 'charmap' codec can't encode character '→' in position 878: character maps to <undefined>`. A skill description contains `→`, which the default Windows console encoding (cp1252) cannot represent; the bundled Python writes with that encoding instead of UTF-8.
+- **Severity:** minor
+- **Workaround:** Set `PYTHONUTF8=1` (or `PYTHONIOENCODING=utf-8`) before running the command, then the full catalog (114 skills) prints and the exit code is 0.
+- **Suggestion:** Have the CLI write UTF-8 (or fall back to escaped characters) regardless of the console code page, and keep non-ASCII punctuation out of skill descriptions until then.
+
+### 2026-10-02 · AWS CLI 2.37.8 `aws login` · Switching a profile's identity needs an interactive y/n, and `aws logout` doesn't clear it
+
+- **Task:** Move the `acme-remit` profile from the root user to a new IAM user (`debashish`) after creating that user.
+- **Steps:** `aws login --region us-east-1 --profile acme-remit` from a non-interactive agent shell; then the same with `"y" |` piped in (Windows PowerShell 5.1); then `aws logout --profile acme-remit` and `aws login` again.
+- **Expected:** A flag to accept the switch non-interactively, or `aws logout` returning the profile to a clean state.
+- **Actual:** After a successful browser sign-in, the CLI asks `Profile acme-remit is already configured to use session arn:aws:iam::…:root. Do you want to overwrite it …? (y/n):` and with no stdin fails with `aws: [ERROR]: EOF when reading a line` (exit 255). Piping `y` from PowerShell 5.1 sends `y\r\n` and is rejected as `Invalid response`. `aws logout` clears the cached token but leaves `login_session = arn:…:root` in `~/.aws/config`, so the prompt returns. Each failed attempt costs the user another browser sign-in.
+- **Severity:** minor
+- **Workaround:** `aws logout --profile <name>`, delete the `login_session` line from `~/.aws/config`, then `aws login` — no prompt.
+- **Suggestion:** Add `--yes`/`--overwrite` to `aws login`, ask before opening the browser rather than after, trim `\r` from the answer, and have `aws logout` remove `login_session` too.
+
+### 2026-10-02 · Amazon Bedrock prompt caching docs · Nova 2 Lite's explicit caching support is not stated
+
+- **Task:** Cut voice-turn latency in `/sim/chat`. Every Converse call resends about 6,000 tokens of system prompt and tool specs, and a turn makes 2 to 4 calls (5 to 15 s per turn from India).
+- **Steps:** Read the Bedrock user guide "Prompt caching for faster model inference" and the Nova model cards, looking for `cachePoint` support for `us.amazon.nova-2-lite-v1:0`.
+- **Expected:** Nova 2 Lite in the "Supported models, Regions, and explicit caching limits" table, with its minimum tokens and the fields that accept checkpoints, as the Nova Lite (v1) card lists them (`system` and `messages`, 1K minimum, 5 minutes).
+- **Actual:** The table lists only Claude and GPT models. The page says Nova offers implicit caching for all text prompts, and that Nova models "shown as supporting Explicit Prompt Caching in their model cards" also take checkpoints. The Nova 2 Lite pages found by search don't say either way, and the Converse response fields we read (`inputTokens`, `outputTokens`) don't show whether implicit caching hit.
+- **Severity:** minor
+- **Workaround:** None added. We rely on implicit caching and keep the system prompt and tool list byte-identical between calls, so the prefix can match.
+- **Suggestion:** Put every Nova model, including Nova 2, in the explicit-caching table (or say "implicit only"), and document whether `cacheReadInputTokens` reports implicit hits in Converse.
+
+### 2026-10-03 · pnpm 12.8.1 (via corepack) on Windows 11 · the native pnpm binary stopped launching mid-session
+
+- **Task:** Add `@aws-sdk/client-polly` for the simulator's Polly voice; earlier, run `pnpm test` / `pnpm lint`.
+- **Steps:** `pnpm add @aws-sdk/client-polly@^3.1143.0` (and earlier `pnpm exec prettier ...`) from Git Bash; then running `%LOCALAPPDATA%\node\corepack\v1\pnpm\12.8.1\pnpm-native.exe --version` directly.
+- **Expected:** pnpm runs, as it had all session.
+- **Actual:** `Could not run the pnpm binary at ...\pnpm-native.exe: spawnSync ... UNKNOWN`; running the exe directly gives `Permission denied`. The first failure came while the machine was at 0.7 GB of free RAM; it persisted at 2 GB free. pnpm 12 under corepack is a 55 MB native exe downloaded into the user profile on first use (`bin/pnpm.mjs` explains this), which is the kind of file endpoint protection or Smart App Control can start blocking. Cause not confirmed.
+- **Severity:** major (blocks adding a dependency; `pnpm-lock.yaml` must change for CI's `--frozen-lockfile`)
+- **Workaround:** Run tools through Node directly (`node node_modules/vitest/vitest.mjs run`, `node node_modules/typescript/bin/tsc --noEmit`, `node node_modules/eslint/bin/eslint.js .`, `node node_modules/tsup/dist/cli-default.js`). Adding a dependency is left to the user (check Windows Security > Protection history, then `pnpm add` in their own terminal).
+- **Suggestion:** pnpm: fall back to the JS implementation when the native binary can't be spawned, and say why (the UNKNOWN errno hides an access-denied). Corepack: show where the downloaded binary lives and how to re-verify it.

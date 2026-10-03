@@ -3,7 +3,7 @@
 
 export const TOOL_DESCRIPTIONS = {
   get_rate:
-    "Get today's AED to INR exchange rate for sending money to India, with the 7-day trend. Use when the user asks about the rate, the rupee, or whether now is a good time to send.",
+    "Get today's exchange rate with the 7-day trend. For AED to INR it is Acme's rate for sending money to India; for any other pair of supported currencies it is the mid-market rate, for information only, because Acme sends money only from AED to INR. Use when the user asks about the rate, the rupee or another currency, or whether now is a good time to send.",
   compare_options:
     "Compare what the recipient would receive for a send amount across Acme's payout methods (bank deposit, UPI, cash pickup), including fee and arrival time, and show Acme's rate against the mid-market rate and a typical bank rate. Use when the user asks which option is best or how much will be received.",
   list_beneficiaries:
@@ -15,7 +15,7 @@ export const TOOL_DESCRIPTIONS = {
   prepare_transfer:
     "Turn a quote into a confirmation request. Returns the exact sentence to read back to the user and a single-use confirmation_token valid for 5 minutes. Does not move money. Call confirm_transfer only after the user explicitly agrees to the read-back.",
   confirm_transfer:
-    "Execute a prepared transfer using its confirmation_token: charges the saved debit card and submits the transfer. Fails if the token is unknown, expired, already used, or if limits changed since the quote.",
+    "Execute a prepared transfer in two calls, after the user agrees to the read-back. Called with the confirmation_token alone, it texts a 6-digit one-time code to the user's registered phone and returns STEP_UP_REQUIRED; nothing is sent yet. Ask the user to read the code out, then call again with the same confirmation_token and otp: that charges the saved debit card and submits the transfer. The code is never in a tool result, so never guess it. Fails if the token is unknown, expired or used, if the code is wrong or expired, or if limits changed since the quote.",
   track_transfer:
     "Get the status of a transfer by reference or the most recent one: current stage, timeline, UTR once paid out, whether it can still be cancelled, and any action the user must take if it is under review. Use when the user asks where their money is or whether it was credited.",
   cancel_transfer:
@@ -24,6 +24,8 @@ export const TOOL_DESCRIPTIONS = {
     "List past transfers for the last N months or to one recipient, including cancelled, returned or refunded ones, with totals and how much of each limit has been used this month.",
   check_limits:
     "Show the user's KYC tier, remaining per-transaction, daily and monthly limits, cash-pickup caps, the reset date, and explain any refusal code in plain words with how to resolve it.",
+  get_help:
+    "Answer general questions about sending money with Acme from the UAE to India, from Acme's reviewed help content: documents, how sending works, recipients, payout methods, fees and rates, limits and tiers, tracking and receipts, cancellations and refunds, NRE and NRO accounts, the Liberalised Remittance Scheme (LRS), tax on money received in India, and staying safe. Use it instead of general knowledge for any rule, document or tax question; for the user's own numbers use check_limits or track_transfer.",
   set_rate_alert:
     'Ask to be told when the AED to INR rate reaches a target. Use when the user says "tell me when" or "alert me if".',
 } as const;

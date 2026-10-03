@@ -48,15 +48,19 @@ with it, stop and ask rather than improvise.
 - Express 5, `@modelcontextprotocol/sdk` (latest 1.x), `zod`
 - `better-sqlite3`, plain SQL migrations in `src/db/migrations/*.sql`
 - `@aws-sdk/client-bedrock-runtime` Converse API; model id from
-  `BEDROCK_MODEL_ID` (default `amazon.nova-2-lite-v1:0`, switchable to a
+  `BEDROCK_MODEL_ID` (default `us.amazon.nova-2-lite-v1:0`, the US inference
+  profile Nova 2 Lite needs in us-east-1; switchable to a
   Claude on Bedrock id)
+- `@aws-sdk/client-polly` for the simulator's voice (`POLLY_VOICE`, default
+  Kajal, neural, en-IN; `none` uses the browser's voice)
 - Vitest + supertest; GitHub Actions on push (`test`, `lint`, `typecheck`)
 - ESLint flat config + Prettier; `tsup` → `dist/`
 - Multi-stage Dockerfile on `node:22-alpine`; deploy target AWS App Runner,
-  us-east-1, min instances 1
+  us-east-1, min and max instances 1 (the SQLite ledger lives on the instance)
 - Config via `dotenv`, validated with zod at startup:
   `PORT`, `MCP_BEARER_TOKEN`, `BEDROCK_MODEL_ID`, `AWS_REGION`, `RATES_URL`,
-  `DB_PATH`, `TICKER_MS`
+  `DB_PATH`, `TICKER_MS`, `SIM_ACCESS_CODE`, `DEV_CONTROLS_CODE`,
+  `SIM_DAILY_BEDROCK_CALLS`, `POLLY_VOICE`, `POLLY_ENGINE`, `SIM_DAILY_TTS_CHARS`
 
 ## Repo layout
 

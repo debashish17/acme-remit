@@ -1,6 +1,7 @@
 # Acme Remit for Alexa+
 
 [![CI](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml/badge.svg)](https://github.com/debashish17/acme-remit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/debashish17/acme-remit)](LICENSE)
 
 > **Simulated ledger — no real funds move.** Mid-market exchange rates are live (ECB via Frankfurter, cached; AED/INR derived from USD/INR at the 3.6725 AED/USD peg); Acme pricing, limits, card funding, screening and payout are simulated.
 
@@ -20,24 +21,25 @@ Three safety properties hold for every money movement:
 
 ## Spec
 
-`docs/SPEC.md` is the build contract: decisions, architecture, the 12-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
+`docs/SPEC.md` is the build contract: decisions, architecture, the 13-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
 
 ## Status
 
-Phase 2 — core and all 12 tools. The full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals. Next: Phase 3, deployment to AWS App Runner and the Alexa+ simulator. See the phase plan in `docs/SPEC.md`.
+Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 13 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
-| `get_rate` | Acme's AED→INR rate, mid-market rate, 7-day trend | |
+| `get_rate` | Acme's AED→INR rate, mid-market rate, 7-day trend; any other ECB or dollar-pegged pair for information | |
 | `compare_options` | Receive amount by bank deposit, UPI and cash pickup, against a typical bank | |
 | `list_beneficiaries` / `resolve_beneficiary` | Saved recipients; find one by name, nickname or relationship | |
 | `quote_transfer` | Fee, locked rate, guaranteed receive amount, limit and purpose checks; held 30 min | |
 | `prepare_transfer` | The exact read-back sentence and a single-use 5-minute token | |
-| `confirm_transfer` | Charges the card and submits, once, with that token | **yes** |
+| `confirm_transfer` | Texts a one-time code to the phone; with that code, charges the card and submits, once | **yes** |
 | `track_transfer` / `get_transfer_history` | Status, timeline, UTR, RFI when under review; history with totals | |
 | `cancel_transfer` | Preview with a cancel token, then cancel and refund before payout | **yes** |
 | `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
 | `set_rate_alert` | Tell the user when the rate reaches a target | |
+| `get_help` | Acme's reviewed answers: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
 
 ## Run
 
@@ -50,6 +52,30 @@ pnpm dev
 ```
 
 `pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
+
+### The simulator
+
+Open `http://127.0.0.1:3000/` and enter `SIM_ACCESS_CODE` from your `.env`. Talk with the orb, the mic button or Space (Chrome or Edge): hold while you speak, or tap once and it listens until you pause. Or type. The assistant speaks with Amazon Polly's Indian English neural voice (Kajal) through `POST /sim/speak`; the voice picker can switch to the browser's own voices, and the page falls back to them if Polly is unavailable (`POLLY_VOICE=none` turns Polly off). **Play demo** steps through the scripted beats one at a time. The panel on the right shows each real JSON-RPC exchange with `POST /mcp`; click a row to see the request and response, with tokens cut to their prefix. The page talks only to `/sim/*`, and the server-side relay holds the Bearer secret. `/sim/chat` calls Bedrock, so it needs AWS credentials (for example `AWS_PROFILE=<profile> pnpm dev`).
+
+For recording, `/?dev=1` adds dev controls (advance the ticker, release the held transfer, fire a rate alert, reset the demo data). They need `DEV_CONTROLS_CODE`, and `/dev/*` answers 404 when it is unset. With the dev code entered, chat turns skip the per-IP limit (the daily Bedrock cap still applies). Press H to hide the panels.
+
+### Conversation evals
+
+```bash
+node --env-file=.env scripts/eval.mjs --runs 3   # or --only script,spoken,safety, --verbose
+```
+
+This plays whole conversations through `/sim/chat` against a running server: real Bedrock, real `/mcp` round trips, a fresh seed for each. There are three: the demo script word for word, the same journey as speech recognition delivers it ("mom", numbers in words, a question and a change mid-confirmation), and consent edge cases. Each turn is checked for the tools called and not called, refusals, word-for-word read-backs and cancel previews, and words that must not be spoken ("screening", "beneficiary", ids, lists, ISO dates). It uses about 65 Bedrock calls per pass of all three. It resets the demo data, so don't run it while someone is using the simulator.
+
+### Run with Docker
+
+```bash
+docker build -t acme-remit .
+docker run -p 8080:8080 -e MCP_BEARER_TOKEN=<long-random-string> -e SIM_ACCESS_CODE=<code> acme-remit
+# MCP endpoint: POST http://127.0.0.1:8080/mcp · health: GET /health
+```
+
+The image is multi-stage on `node:22-alpine`, runs as the non-root `node` user, migrates and loads the demo seed into an empty database on start, and reads all configuration from the environment (see `.env.example`). Bedrock calls from `/sim/chat` need AWS credentials in the environment or an instance role.
 
 ### Check the protocol with curl
 
@@ -77,6 +103,18 @@ eval $I --method tools/call --tool-name confirm_transfer --tool-arg confirmation
 eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=3000 --tool-arg beneficiary_id=ben_01   # refused: MONTHLY_LIMIT
 ```
 
+## Deploy to AWS App Runner
+
+Everything is in `infra/acme-remit.yaml` (CloudFormation) and `.github/workflows/deploy.yml` (GitHub OIDC, no stored AWS keys). Region `us-east-1`.
+
+1. **Create the stack** (console: CloudFormation → Create stack → upload `infra/acme-remit.yaml`), name `acme-remit`, `CreateService=false`, optionally `BudgetEmail`. It creates the ECR repo, generated secrets (`acme-remit/mcp-bearer-token`, `/sim-access-code`, `/dev-controls-code`), the App Runner roles and the GitHub deploy role.
+2. **Set the repository variable** `AWS_DEPLOY_ROLE_ARN` (GitHub → Settings → Secrets and variables → Actions → Variables) to the stack output `GitHubDeployRoleArn`.
+3. **Push the first image**: run the *Deploy* workflow (Actions → Deploy → Run workflow). With no service yet it pushes `<sha>` and `live` to ECR and stops.
+4. **Create the service**: update the stack with `CreateService=true`. The output `ServiceUrl` is the public URL; the MCP endpoint is `<ServiceUrl>/mcp`.
+5. From then on every push to `main` that passes CI builds, pushes, starts an App Runner deployment, waits for it, and records per-tool p50/p95 latency from the (US-hosted) runner in the job summary, failing if any p95 exceeds 500 ms.
+
+The service runs exactly one instance (min = max = 1) because the SQLite ledger lives on it; each deploy starts from the demo seed. Its role may call only the configured Bedrock model. The simulator access code and dev-controls code are in Secrets Manager.
+
 ## Real vs simulated
 
 | Component | Real | Simulated |
@@ -87,6 +125,7 @@ eval $I --method tools/call --tool-name quote_transfer --tool-arg send_amount=30
 | Mid-market exchange rates | yes (Frankfurter) | |
 | Acme FX margin, fees, payout methods, KYC tier limits | | yes |
 | Card funding, ledger, screening, payout partner, UTRs | | yes |
+| SMS delivery of the step-up code (shown on a simulated phone) | | yes |
 
 ## License
 

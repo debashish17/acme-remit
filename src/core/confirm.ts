@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Db } from "../db/connection.js";
 import { TOKEN_TTL_MINUTES } from "./policy.js";
-import { refuse } from "./refusal.js";
+import { isRefusal, refuse } from "./refusal.js";
 import { addMinutes } from "./time.js";
 import { consoleLogger, type Clock, type Logger, type Refusal } from "./types.js";
 
@@ -35,7 +35,8 @@ export interface GateDeps {
 
 const PREFIX: Record<GateKind, string> = { transfer: "ct_", cancel: "cx_" };
 
-const hash = (token: string) => createHash("sha256").update(token).digest("hex");
+/** SHA-256 of a token: what the confirmations table stores. */
+export const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** Safe to log: the kind prefix and the first five characters of the random part. */
 export const tokenPrefix = (token: string) => `${token.slice(0, 8)}…`;
@@ -93,34 +94,76 @@ export class ConfirmationGate {
    * token reveals nothing to anyone but the caller it was issued to.
    */
   consume(token: string, callerId: string, kind: GateKind): GateTarget | Refusal {
-    const prefix = tokenPrefix(token);
-    const reject = (code: "TOKEN_UNKNOWN" | "TOKEN_EXPIRED" | "TOKEN_USED", reason: string) => {
-      this.logger.warn(`gate: rejected ${kind} token ${prefix} (${reason})`);
-      return refusal(code, kind);
-    };
+    const checked = this.check(token, callerId, kind);
+    if (isRefusal(checked)) return checked;
+    const now = this.now();
+    // Conditional update: of two concurrent consumers, exactly one sees a change.
+    const { changes } = this.db
+      .prepare("UPDATE confirmations SET used_at = ? WHERE token = ? AND used_at IS NULL")
+      .run(now.toISOString(), checked.tokenHash);
+    if (changes !== 1) return this.reject(token, kind, "TOKEN_USED", "lost a concurrent consume");
 
-    if (!token.startsWith(PREFIX[kind])) return reject("TOKEN_UNKNOWN", "wrong kind or format");
+    this.logger.info(`gate: consumed ${kind} token ${tokenPrefix(token)}`);
+    return checked.target;
+  }
+
+  /**
+   * The same checks as consume, changing nothing: the step-up check runs on a valid token before
+   * it is spent. Returns the token's hash (for binding a code to it) and its expiry.
+   */
+  peek(
+    token: string,
+    callerId: string,
+    kind: GateKind,
+  ): { target: GateTarget; tokenHash: string; expiresAt: string } | Refusal {
+    return this.check(token, callerId, kind);
+  }
+
+  /** Ends an unused token now, e.g. after too many wrong step-up codes. */
+  void(token: string): void {
+    this.db
+      .prepare("UPDATE confirmations SET expires_at = ? WHERE token = ? AND used_at IS NULL")
+      .run(this.now().toISOString(), hash(token));
+    this.logger.warn(`gate: voided token ${tokenPrefix(token)}`);
+  }
+
+  private check(
+    token: string,
+    callerId: string,
+    kind: GateKind,
+  ): { target: GateTarget; tokenHash: string; expiresAt: string } | Refusal {
+    if (!token.startsWith(PREFIX[kind])) {
+      return this.reject(token, kind, "TOKEN_UNKNOWN", "wrong kind or format");
+    }
+    const tokenHash = hash(token);
     const row = this.db
       .prepare(
         "SELECT quote_id, transfer_ref, session_id, expires_at, used_at FROM confirmations WHERE token = ?",
       )
-      .get(hash(token)) as ConfirmationRow | undefined;
-    if (!row) return reject("TOKEN_UNKNOWN", "not found");
-    if (row.session_id !== callerId) return reject("TOKEN_UNKNOWN", "issued to another caller");
-    if (row.used_at) return reject("TOKEN_USED", "already used");
-    const now = this.now();
-    if (Date.parse(row.expires_at) <= now.getTime()) return reject("TOKEN_EXPIRED", "expired");
+      .get(tokenHash) as ConfirmationRow | undefined;
+    if (!row) return this.reject(token, kind, "TOKEN_UNKNOWN", "not found");
+    if (row.session_id !== callerId) {
+      return this.reject(token, kind, "TOKEN_UNKNOWN", "issued to another caller");
+    }
+    if (row.used_at) return this.reject(token, kind, "TOKEN_USED", "already used");
+    if (Date.parse(row.expires_at) <= this.now().getTime()) {
+      return this.reject(token, kind, "TOKEN_EXPIRED", "expired");
+    }
+    const target: GateTarget =
+      kind === "transfer"
+        ? { kind, quoteId: row.quote_id ?? "" }
+        : { kind, ref: row.transfer_ref ?? "" };
+    return { target, tokenHash, expiresAt: row.expires_at };
+  }
 
-    // Conditional update: of two concurrent consumers, exactly one sees a change.
-    const { changes } = this.db
-      .prepare("UPDATE confirmations SET used_at = ? WHERE token = ? AND used_at IS NULL")
-      .run(now.toISOString(), hash(token));
-    if (changes !== 1) return reject("TOKEN_USED", "lost a concurrent consume");
-
-    this.logger.info(`gate: consumed ${kind} token ${prefix}`);
-    return kind === "transfer"
-      ? { kind, quoteId: row.quote_id ?? "" }
-      : { kind, ref: row.transfer_ref ?? "" };
+  private reject(
+    token: string,
+    kind: GateKind,
+    code: "TOKEN_UNKNOWN" | "TOKEN_EXPIRED" | "TOKEN_USED",
+    reason: string,
+  ): Refusal {
+    this.logger.warn(`gate: rejected ${kind} token ${tokenPrefix(token)} (${reason})`);
+    return refusal(code, kind);
   }
 }
 

@@ -330,6 +330,17 @@ export class QuoteService {
     };
   }
 
+  /** The newest quote still open or prepared and within its lock (the simulator ledger strip). */
+  latestOpen(userId: string): QuoteRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id FROM quotes WHERE user_id = ? AND status IN ('open', 'prepared')
+         AND rate_locked_until > ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(userId, this.now().toISOString()) as { id: string } | undefined;
+    return row ? this.get(userId, row.id) : undefined;
+  }
+
   get(userId: string, quoteId: string): QuoteRecord | undefined {
     const row = this.db
       .prepare("SELECT * FROM quotes WHERE id = ? AND user_id = ?")

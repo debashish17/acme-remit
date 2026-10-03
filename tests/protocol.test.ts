@@ -25,6 +25,7 @@ const TOOLS = [
   "get_transfer_history",
   "check_limits",
   "set_rate_alert",
+  "get_help",
 ];
 
 /** The `description` column for a tool in the docs/SPEC.md tool contract table. */
@@ -87,7 +88,7 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("returns the 12 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
+  it("returns the 13 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
     const res = await rpc("tools/list");
     expect(res.status).toBe(200);
     const tools = res.body.result.tools as Record<string, unknown>[];
@@ -117,6 +118,7 @@ describe("tools/list", () => {
       "track_transfer",
       "get_transfer_history",
       "check_limits",
+      "get_help",
     ]);
   });
 
@@ -198,7 +200,7 @@ describe("tools/call", () => {
 
   it("rejects malformed input before any core code runs", async () => {
     for (const [name, args] of [
-      ["get_rate", { from: "USD" }],
+      ["get_rate", { from: "dollars" }],
       ["quote_transfer", { send_amount: 10.555, beneficiary_id: "ben_01" }],
       ["quote_transfer", { send_amount: -5, beneficiary_id: "ben_01" }],
       ["track_transfer", { transfer_ref: "'; DROP TABLE transfers;--" }],
@@ -206,6 +208,22 @@ describe("tools/call", () => {
       const res = await call(name, args);
       expect(res.body.result.isError, `${name} ${JSON.stringify(args)}`).toBe(true);
     }
+  });
+
+  it("get_rate quotes other currencies for information and refuses unknown ones", async () => {
+    const info = await call("get_rate", { from: "USD", to: "INR" });
+    expect(info.body.result.isError).toBeFalsy();
+    expect(info.body.result.structuredContent).toMatchObject({ pair: "USD/INR", sendable: false });
+    const sending = await call("get_rate", {});
+    expect(sending.body.result.structuredContent).toMatchObject({
+      pair: "AED/INR",
+      sendable: true,
+    });
+    const unknown = await call("get_rate", { from: "AED", to: "XYZ" });
+    expect(unknown.body.result.isError).toBe(true);
+    expect(unknown.body.result.structuredContent).toMatchObject({
+      refused: { code: "CURRENCY_NOT_SUPPORTED", currency: "XYZ" },
+    });
   });
 
   it("an unexpected failure becomes a structured INTERNAL_ERROR, never a crash", async () => {

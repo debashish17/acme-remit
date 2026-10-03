@@ -91,9 +91,16 @@ export const REFUSAL_CODES = [
   "TOKEN_UNKNOWN",
   "TOKEN_EXPIRED",
   "TOKEN_USED",
+  "STEP_UP_REQUIRED",
+  "OTP_INVALID",
+  "OTP_EXPIRED",
+  "OTP_LOCKED",
   "CARD_DECLINED",
   "TRANSFER_NOT_FOUND",
   "CANCEL_WINDOW_CLOSED",
+  // rates
+  "CURRENCY_NOT_SUPPORTED",
+  "RATE_UNAVAILABLE",
   // alerts
   "ALERT_TARGET_INVALID",
   // anything unexpected, converted at the tool boundary

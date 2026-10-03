@@ -9,11 +9,15 @@ describe("parseConfig", () => {
     expect(cfg).toEqual({
       PORT: 3000,
       MCP_BEARER_TOKEN: TOKEN,
-      BEDROCK_MODEL_ID: "amazon.nova-2-lite-v1:0",
+      BEDROCK_MODEL_ID: "us.amazon.nova-2-lite-v1:0",
       AWS_REGION: "us-east-1",
       RATES_URL: "https://api.frankfurter.dev/v1",
       DB_PATH: "./data/acme-remit.db",
       TICKER_MS: 15000,
+      SIM_DAILY_BEDROCK_CALLS: 500,
+      POLLY_VOICE: "Kajal",
+      POLLY_ENGINE: "neural",
+      SIM_DAILY_TTS_CHARS: 100000,
     });
   });
 
@@ -44,5 +48,20 @@ describe("parseConfig", () => {
 
   it("treats empty strings as unset", () => {
     expect(parseConfig({ MCP_BEARER_TOKEN: TOKEN, PORT: "" }).PORT).toBe(3000);
+  });
+
+  it("leaves the simulator and dev controls disabled unless their codes are set", () => {
+    const cfg = parseConfig({ MCP_BEARER_TOKEN: TOKEN });
+    expect(cfg.SIM_ACCESS_CODE).toBeUndefined();
+    expect(cfg.DEV_CONTROLS_CODE).toBeUndefined();
+    const on = parseConfig({
+      MCP_BEARER_TOKEN: TOKEN,
+      SIM_ACCESS_CODE: "sim-code-123",
+      DEV_CONTROLS_CODE: "dev-code-123",
+    });
+    expect(on.SIM_ACCESS_CODE).toBe("sim-code-123");
+    expect(() => parseConfig({ MCP_BEARER_TOKEN: TOKEN, SIM_ACCESS_CODE: "short" })).toThrow(
+      /SIM_ACCESS_CODE: must be at least 8 characters/,
+    );
   });
 });

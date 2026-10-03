@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { refuse } from "../core/refusal.js";
+import { isRefusal, refuse } from "../core/refusal.js";
 
 /**
  * The edge (CLAUDE.md rule 2): core speaks integer minor units in fields ending `_minor`; tools
@@ -40,10 +40,14 @@ export function result(value: unknown): CallToolResult {
 export function safely<A extends unknown[]>(
   name: string,
   fn: (...args: A) => Promise<unknown> | unknown,
+  opts: { refusalIsError?: boolean } = {},
 ): (...args: A) => Promise<CallToolResult> {
   return async (...args: A) => {
     try {
-      return result(await fn(...args));
+      const value = await fn(...args);
+      // A tool with an output schema must flag a refusal, or the SDK rejects it as invalid output.
+      if (opts.refusalIsError && isRefusal(value)) return { ...result(value), isError: true };
+      return result(value);
     } catch (err) {
       console.error(`tool ${name} failed: ${err instanceof Error ? err.message : String(err)}`);
       return {

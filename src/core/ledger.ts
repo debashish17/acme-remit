@@ -419,11 +419,11 @@ export class LedgerService {
   /**
    * Advances each transfer at most one step: SCREENING -> SENT_TO_PARTNER and SENT_TO_PARTNER ->
    * PAID_OUT (with a UTR) once `stepMs` has passed since its last status change. ON_HOLD,
-   * CANCELLED and RETURNED are never touched.
+   * CANCELLED and RETURNED are never touched. `force` (dev control) skips the wait.
    */
-  tick(): { ref: string; status: TransferStatus }[] {
+  tick(opts: { force?: boolean } = {}): { ref: string; status: TransferStatus }[] {
     const now = this.now();
-    const due = new Date(now.getTime() - this.stepMs).toISOString();
+    const due = new Date(opts.force ? now.getTime() : now.getTime() - this.stepMs).toISOString();
     const at = now.toISOString();
     const rows = this.db
       .prepare(
@@ -457,6 +457,22 @@ export class LedgerService {
         return { ref: r.ref, status: "PAID_OUT" as const };
       }),
     )();
+  }
+
+  /**
+   * Dev control (SPEC: "ON_HOLD stays until a dev control releases it"): an ON_HOLD transfer goes
+   * back to SCREENING, so the ticker carries it on to PAID_OUT. Not reachable from any tool.
+   */
+  releaseHold(userId: string, ref?: string): { ref: string; status: TransferStatus } | undefined {
+    const t = ref ? this.find(userId, ref) : this.oldestOnHold(userId);
+    if (!t || t.status !== "ON_HOLD") return undefined;
+    const at = this.now().toISOString();
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE transfers SET status = 'SCREENING' WHERE ref = ?").run(t.ref);
+      this.addEvent(t.ref, "SCREENING", at);
+    })();
+    this.logger.info(`ledger: dev control released ${t.ref}`);
+    return { ref: t.ref, status: "SCREENING" };
   }
 
   /** Runs tick() every `intervalMs` (default 1 s, so steps land on time). Returns a stop function. */
@@ -494,6 +510,16 @@ export class LedgerService {
          JOIN beneficiaries b ON b.id = t.beneficiary_id WHERE t.ref = ? AND t.user_id = ?`,
       )
       .get(ref.trim().toUpperCase(), userId) as TransferRow | undefined;
+  }
+
+  private oldestOnHold(userId: string): TransferRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT t.*, b.nickname, b.relationship FROM transfers t
+         JOIN beneficiaries b ON b.id = t.beneficiary_id
+         WHERE t.user_id = ? AND t.status = 'ON_HOLD' ORDER BY t.created_at, t.rowid LIMIT 1`,
+      )
+      .get(userId) as TransferRow | undefined;
   }
 
   private latest(userId: string): TransferRow | undefined {

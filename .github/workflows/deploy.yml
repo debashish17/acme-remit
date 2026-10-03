@@ -1,0 +1,103 @@
+name: Deploy
+
+# After CI passes on main: build the image, push <sha> and "live" to ECR, start an App Runner
+# deployment, wait for it, then measure per-tool latency from this (US-hosted) runner.
+# Credentials come from GitHub OIDC (infra/acme-remit.yaml, GitHubDeployRole); no AWS keys are stored.
+# Skipped until the repository variable AWS_DEPLOY_ROLE_ARN is set.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_REGION: us-east-1
+      STACK: ${{ vars.AWS_STACK_NAME || 'acme-remit' }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.STACK }}:${{ env.SHA }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.STACK }}:live
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to App Runner
+        id: apprunner
+        run: |
+          arn=$(aws apprunner list-services \
+            --query "ServiceSummaryList[?ServiceName=='${STACK}'].ServiceArn | [0]" --output text)
+          if [ -z "$arn" ] || [ "$arn" = "None" ]; then
+            echo "::notice::Image pushed. No App Runner service yet: update the stack with CreateService=true."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          op=$(aws apprunner start-deployment --service-arn "$arn" --query OperationId --output text)
+          echo "Started deployment operation $op"
+          for i in $(seq 1 90); do
+            status=$(aws apprunner list-operations --service-arn "$arn" \
+              --query "OperationSummaryList[?Id=='${op}'].Status | [0]" --output text)
+            echo "[$i] $status"
+            case "$status" in
+              SUCCEEDED) break ;;
+              FAILED|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED) echo "::error::Deployment $op ended $status"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          [ "$status" = "SUCCEEDED" ] || { echo "::error::Deployment $op still $status after 15 minutes"; exit 1; }
+          url=$(aws apprunner describe-service --service-arn "$arn" --query Service.ServiceUrl --output text)
+          echo "url=https://${url}" >> "$GITHUB_OUTPUT"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+          echo "Deployed ${SHA} to https://${url}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v7
+        if: steps.apprunner.outputs.deployed == 'true'
+        with:
+          node-version: 22
+
+      - name: Latency check (p95 per tool)
+        if: steps.apprunner.outputs.deployed == 'true'
+        env:
+          MCP_URL: ${{ steps.apprunner.outputs.url }}/mcp
+        run: |
+          token=$(aws secretsmanager get-secret-value --secret-id "${STACK}/mcp-bearer-token" \
+            --query SecretString --output text)
+          echo "::add-mask::${token}"
+          MCP_BEARER_TOKEN="$token" node scripts/latency.mjs | tee -a "$GITHUB_STEP_SUMMARY"

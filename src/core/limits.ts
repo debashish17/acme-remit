@@ -236,11 +236,22 @@ export class LimitService {
       TOKEN_EXPIRED:
         "Confirmations last 5 minutes. Prepare the transfer again to get a new read-back.",
       TOKEN_USED: "That confirmation has already been used, so nothing was sent twice.",
+      STEP_UP_REQUIRED:
+        "Every transfer is approved twice: your yes to the read-back, then the one-time code Acme texts to your registered phone.",
+      OTP_INVALID:
+        "That code didn't match. Read the 6-digit code from the latest Acme text message.",
+      OTP_EXPIRED: "Codes last 5 minutes. Ask for a new code; nothing has been sent.",
+      OTP_LOCKED:
+        "After 3 wrong codes the confirmation is cancelled, so nothing was sent. Prepare the transfer again to start over.",
       CARD_DECLINED:
         "Your card was declined and nothing was sent. Check the card in the Acme app or try again later.",
       TRANSFER_NOT_FOUND: "No transfer with that reference was found on your account.",
       CANCEL_WINDOW_CLOSED:
         "Transfers can be cancelled only before they are sent to the payout partner. After that, a recall needs the recipient's consent; Acme support can request one from the app.",
+      CURRENCY_NOT_SUPPORTED:
+        "Rates are available for the currencies with a published ECB reference rate, plus the Gulf currencies tied to the US dollar. Acme sends money from AED to INR only.",
+      RATE_UNAVAILABLE:
+        "The reference rate couldn't be fetched just now. Ask again in a few minutes.",
       ALERT_TARGET_INVALID: "The alert target must be a positive rate, such as 26.5.",
       INTERNAL_ERROR: "Something went wrong on our side. Nothing was charged; try again shortly.",
     };

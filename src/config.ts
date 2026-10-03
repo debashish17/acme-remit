@@ -6,11 +6,21 @@ const ConfigSchema = z.object({
   MCP_BEARER_TOKEN: z
     .string({ error: "is required" })
     .min(16, "must be at least 16 characters (use a long random string)"),
-  BEDROCK_MODEL_ID: z.string().min(1).default("amazon.nova-2-lite-v1:0"),
+  // Nova 2 Lite has no in-Region endpoint in us-east-1: use the US inference profile.
+  BEDROCK_MODEL_ID: z.string().min(1).default("us.amazon.nova-2-lite-v1:0"),
   AWS_REGION: z.string().min(1).default("us-east-1"),
   RATES_URL: z.url().default("https://api.frankfurter.dev/v1"),
   DB_PATH: z.string().min(1).default("./data/acme-remit.db"),
   TICKER_MS: z.coerce.number().int().min(100).default(15000),
+  // Simulator and dev controls on a public URL. Unset means disabled (fail closed).
+  SIM_ACCESS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
+  DEV_CONTROLS_CODE: z.string().min(8, "must be at least 8 characters").optional(),
+  SIM_DAILY_BEDROCK_CALLS: z.coerce.number().int().min(1).default(500),
+  // The assistant's voice in the simulator: an Amazon Polly voice id, or "none" for the browser's.
+  POLLY_VOICE: z.string().min(1).default("Kajal"),
+  POLLY_ENGINE: z.enum(["standard", "neural", "generative", "long-form"]).default("neural"),
+  // Characters Polly may bill per day (each reply bills its length twice: audio and word timings).
+  SIM_DAILY_TTS_CHARS: z.coerce.number().int().min(1).default(100000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
