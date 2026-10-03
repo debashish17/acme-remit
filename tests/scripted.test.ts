@@ -150,6 +150,9 @@ describe("scripted mode: Play demo through the real tools, no language model", (
     expect(at("Send her another three thousand.")?.tool_calls[0]).toMatchObject({
       refused: "MONTHLY_LIMIT",
     });
+    expect(at("Send her another three thousand.")?.reply).toMatch(
+      /^That would go over your monthly limit\. Send up to 1,500 dirhams/,
+    );
     expect(at("Send 500 to Rahul.")?.reply).toBe(
       "Do you mean your brother Rahul Nair, or your friend Rahul Menon?",
     );

@@ -148,6 +148,15 @@ const sayDate = (iso: unknown) => {
   return `${d} ${MONTHS[(m ?? 1) - 1]}`;
 };
 
+/** A few words saying why, before a refusal's resolution text. */
+const REFUSAL_LEAD: Record<string, string> = {
+  MONTHLY_LIMIT: "That would go over your monthly limit. ",
+  DAILY_LIMIT: "That would go over today's limit. ",
+  PER_TRANSACTION_LIMIT: "That's more than one transfer can carry. ",
+  NEW_RECIPIENT_LIMIT: "This recipient is new, so the first transfer is capped. ",
+  SOURCE_OF_FUNDS_REQUIRED: "A transfer that size needs proof of funds first. ",
+};
+
 export class ScriptedChat implements ChatEngine {
   private readonly convos = new Map<string, Convo>();
 
@@ -413,8 +422,8 @@ export class ScriptedChat implements ChatEngine {
     if (!amount) return "How much would you like to send?";
     convo.recipient = who;
     const q = await tool("quote_transfer", { beneficiary_id: who.id, send_amount: amount });
-    const no = (q.refused as { resolution?: string } | undefined)?.resolution;
-    if (no) return no;
+    const refused = q.refused as { code?: string; resolution?: string } | undefined;
+    if (refused) return `${REFUSAL_LEAD[refused.code ?? ""] ?? ""}${refused.resolution ?? ""}`;
     const p = await tool("prepare_transfer", { quote_id: q.quote_id });
     const pno = (p.refused as { resolution?: string } | undefined)?.resolution;
     if (pno) return pno;
