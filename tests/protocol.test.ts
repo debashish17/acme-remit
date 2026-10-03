@@ -26,6 +26,7 @@ const TOOLS = [
   "check_limits",
   "set_rate_alert",
   "get_help",
+  "get_pending",
 ];
 
 /** The `description` column for a tool in the docs/SPEC.md tool contract table. */
@@ -88,7 +89,7 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("returns the 13 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
+  it("returns the 14 contract tools, in order, with JSON schemas and SPEC descriptions", async () => {
     const res = await rpc("tools/list");
     expect(res.status).toBe(200);
     const tools = res.body.result.tools as Record<string, unknown>[];
@@ -119,6 +120,7 @@ describe("tools/list", () => {
       "get_transfer_history",
       "check_limits",
       "get_help",
+      "get_pending",
     ]);
   });
 
@@ -215,6 +217,18 @@ describe("tools/call", () => {
     expect(latest.body.result.structuredContent).toMatchObject({ transfer_ref: "ACM-240120" });
     const byRef = await call("track_transfer", { transfer_ref: "ACM-240119" });
     expect(byRef.body.result.structuredContent).toMatchObject({ transfer_ref: "ACM-240119" });
+  });
+
+  it("get_pending returns cross-session context in major units", async () => {
+    const res = await call("get_pending", {});
+    expect(res.body.result.isError).toBeFalsy();
+    expect(res.body.result.structuredContent).toMatchObject({
+      under_review: [{ transfer_ref: "ACM-240120", send_amount: 13000 }],
+      last_by_recipient: expect.arrayContaining([
+        expect.objectContaining({ recipient: "Mum", send_amount: 2000 }),
+      ]),
+      summary: expect.stringContaining("under review"),
+    });
   });
 
   it("serverInfo.version comes from package.json", async () => {

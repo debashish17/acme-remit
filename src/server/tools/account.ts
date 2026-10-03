@@ -68,4 +68,17 @@ export function registerAccountTools(server: McpServer, core: Core): void {
     },
     safely("get_help", ({ topic }: { topic: HelpTopic }) => core.help(topic)),
   );
+
+  server.registerTool(
+    "get_pending",
+    {
+      title: "What's pending",
+      description: TOOL_DESCRIPTIONS.get_pending,
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    safely("get_pending", (_args: Record<string, never>, extra: Extra) =>
+      core.pending.pending(principalOf(extra.authInfo).userId),
+    ),
+  );
 }

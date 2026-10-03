@@ -5,6 +5,7 @@ import { helpAnswer, type HelpTopic } from "./help.js";
 import { ConfirmationGate } from "./confirm.js";
 import { LedgerService, type CardGateway } from "./ledger.js";
 import { LimitService } from "./limits.js";
+import { PendingService } from "./pending.js";
 import { VERIFIED_TIER, type TierConfig } from "./policy.js";
 import { QuoteService } from "./quotes.js";
 import { RatesService } from "./rates.js";
@@ -77,8 +78,22 @@ export function createCore(deps: CoreDeps) {
   const alerts = new AlertService(db, rates, now);
 
   const help = (topic: HelpTopic) => helpAnswer(topic, tier);
+  const pending = new PendingService(db, ledger, alerts, now);
 
-  return { db, rates, limits, gate, quotes, ledger, stepUp, outbox, beneficiaries, alerts, help };
+  return {
+    db,
+    rates,
+    limits,
+    gate,
+    quotes,
+    ledger,
+    stepUp,
+    outbox,
+    beneficiaries,
+    alerts,
+    help,
+    pending,
+  };
 }
 
 export type Core = ReturnType<typeof createCore>;

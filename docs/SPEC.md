@@ -70,6 +70,7 @@ Twelve tools, one domain, two money-moving tools behind one gate. The `descripti
 | 11 | `check_limits` | Show the user's KYC tier, remaining per-transaction, daily and monthly limits, cash-pickup caps, the reset date, and explain any refusal code in plain words with how to resolve it. | no |
 | 12 | `set_rate_alert` | Ask to be told when the AED to INR rate reaches a target. Use when the user says "tell me when" or "alert me if". | alert row |
 | 13 | `get_help` | Answer general questions about sending money with Acme from the UAE to India, from Acme's reviewed help content: documents, how sending works, recipients, payout methods, fees and rates, limits and tiers, tracking and receipts, cancellations and refunds, NRE and NRO accounts, the Liberalised Remittance Scheme (LRS), tax on money received in India, and staying safe. Use it instead of general knowledge for any rule, document or tax question; for the user's own numbers use check_limits or track_transfer. | no |
+| 14 | `get_pending` | Get what is waiting on the user since their last conversation: open quotes, transfers under review and what the user must do, rate alerts that fired recently, and the last transfer to each recipient. Call it once at the start of a conversation to mention anything that needs attention, and use last_by_recipient to resolve requests like "send the usual to Mum". | no |
 
 **Inputs and outputs**
 
@@ -183,6 +184,18 @@ out: { "topic": "lrs", "title": "The Liberalised Remittance Scheme (LRS)",
        "points": ["LRS: outward remittances by resident Indians, USD 250,000 per financial year", "..."],
        "source": "Reserve Bank of India, Liberalised Remittance Scheme", "last_reviewed": "2026-10-03",
        "disclaimer": "General information, not legal or tax advice. ...", "related": ["nre_nro", "tax"] }
+
+// 14 get_pending: cross-session context from the ledger (conversations themselves are not kept)
+in:  {}
+out: { "open_quotes": [ { "quote_id": "q_7f3a", "recipient": "Mum", "beneficiary_id": "ben_01", "send_amount": 2000,
+         "receive_amount": 51598.09, "status": "open", "rate_locked_until": "..." } ],
+       "under_review": [ { "transfer_ref": "ACM-240120", "recipient": "My NRE account", "send_amount": 13000,
+         "sent_on": "2026-10-01", "customer_label": "Under review", "cancellable": true,
+         "action_required": { "type": "document", "document": "updated Emirates ID", "how": "upload in the Acme app", "deadline": "2026-10-08" } } ],
+       "fired_alerts": [ { "alert_id": "al_01", "pair": "AED/INR", "target": 26.5, "direction": "above", "fired_at": "..." } ],
+       "last_by_recipient": [ { "beneficiary_id": "ben_01", "recipient": "Mum", "full_name": "Sunita Nair", "transfer_ref": "ACM-240119",
+         "send_amount": 2000, "payout_method": "bank_deposit", "purpose": "family_maintenance", "date": "2026-10-01", "customer_label": "Paid out" } ],
+       "summary": "Your 13,000 dirham transfer to My NRE account is under review: upload updated Emirates ID in the Acme app by 8 October." }
 ```
 
 Every refusal is structured (`code`, numbers, `resolution`) so the model can explain it well. No tool ever returns a bare string error.
@@ -372,6 +385,8 @@ A transfer needs four calls in order (quote, prepare, confirm, confirm with the 
 **Rules**
 
 1. `quote_transfer` writes a quote with status `open`, rate and fee locked for 30 min, and the guaranteed receive amount. A quote is priced once; `confirm` never re-fetches the rate.
+Tokens are bound to the authenticated caller (the principal from the Bearer check; the OAuth subject and client in production), never to an MCP session: the transport is stateless and has no session id. The `session_id` columns hold that caller key.
+
 2. `prepare_transfer` requires an `open`, unexpired quote. It moves the quote to `prepared`, issues one random 32-byte token (base64url) bound to the quote and the authenticated caller (stateless transport, so no MCP session id), expiry now + 5 min. Calling prepare again on the same quote invalidates the previous token.
 3. `confirm_transfer` requires a token that exists, is unused, unexpired, and was issued to the same authenticated caller. It re-runs the limit check, then in one SQLite transaction: marks the token used, marks the quote `consumed`, records the mock card charge, inserts the transfer as `FUNDS_RECEIVED` and immediately `SCREENING`, and writes both timeline events.
 3a. Step-up. `confirm_transfer` with a valid token and no `otp` changes nothing in the ledger: it texts a 6-digit code to the user's registered phone, naming the amount and recipient, and refuses `STEP_UP_REQUIRED` with `sent_to`, `expires_at` and `attempts_left`. The code is stored as a salted SHA-256 hash bound to the token's hash and the caller, lasts 5 minutes and never outlives the token, and is never logged or returned by any tool. Only a second call with the same token and the right `otp` runs rule 3. A wrong code refuses `OTP_INVALID` with `attempts_left`; the third voids the token (`OTP_LOCKED`); an expired code refuses `OTP_EXPIRED`; at most 3 codes are sent per token. The simulator masks the code in the protocol panel to its first two digits.
@@ -391,7 +406,7 @@ A transfer needs four calls in order (quote, prepare, confirm, confirm with the 
 | `ledger.test.ts` | confirm charges the card exactly once under two concurrent confirms (second refused) · ticker advances SCREENING → SENT\_TO\_PARTNER → PAID\_OUT and sets a UTR · ON\_HOLD is not advanced by the ticker · cancel in SCREENING or ON\_HOLD refunds the amount charged (fee included) and lowers monthly used · cancel after SENT\_TO\_PARTNER refused CANCEL\_WINDOW\_CLOSED · cancel preview then execute consumes one cx\_ token, reuse refused · track returns RFI for ON\_HOLD and refund details for RETURNED · history totals and limits\_used match seeded rows |
 | `rates.test.ts` | live fetch populates cache · second call within 15 min does not hit the network (mocked fetch) · network failure falls back to seeded history with source=fallback |
 | `help.test.ts` | every topic has a spoken answer under 75 words, points, a source and a review date · numbers come from the enforced policy and follow the tier · LRS is said not to apply to inward remittances · NRE/NRO, LRS and tax carry the general-information disclaimer · recipients are never added by voice |
-| `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 13 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
+| `protocol.test.ts` | `initialize` negotiates `2025-11-25` · `tools/list` returns 14 tools with JSON schemas · `tools/call` on each tool returns structured content · missing Bearer returns 401 · legacy GET /sse is not served |
 
 Run `npm test` in CI (GitHub Actions on every push) so the green badge is in the README on submission day.
 
@@ -401,7 +416,7 @@ The simulator stands in for Alexa+ because Alexa+ is not available in India. Its
 
 **How it works**
 
-1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 13 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
+1. On load, the page calls `GET /sim/tools`. The relay, which holds the Bearer secret, calls the server's own `POST /mcp` with `initialize` then `tools/list` and returns the 14 tool schemas, the negotiated `protocolVersion` and the raw JSON-RPC exchange for the protocol panel.
 2. The user speaks (Web Speech API, `webkitSpeechRecognition`) or types. The transcript is appended to a message history.
 3. The page sends the new turn to `POST /sim/chat`. The relay keeps the conversation server-side (tool calls included, in memory, 30-minute expiry) and forwards it with the tool schemas to Amazon Bedrock (Nova 2 Lite or Claude on Bedrock via the Converse API with tool use). Keeping Bedrock behind the server avoids shipping AWS keys to the browser and is the documented AWS Builder integration.
 4. When Bedrock returns a tool call, the relay executes it against its own `/mcp` endpoint (a real JSON-RPC round trip, not an in-process shortcut), feeds the result back, and loops until Bedrock returns text. It returns the reply together with each JSON-RPC request and response and its latency in ms; tokens are shown by prefix only.

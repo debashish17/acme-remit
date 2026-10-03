@@ -21,11 +21,11 @@ Three safety properties hold for every money movement:
 
 ## Spec
 
-`docs/SPEC.md` is the build contract: decisions, architecture, the 13-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
+`docs/SPEC.md` is the build contract: decisions, architecture, the 14-tool contract with JSON schemas, core module interfaces, data model and seed, token lifecycle and tests, simulator design, and the phase plan. The architecture, transfer-lifecycle and timeline diagrams live in the source doc and are not in the Markdown export.
 
 ## Status
 
-Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 13 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
+Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 14 tools are done: the full send flow (rate, compare, find recipient, quote, read-back, confirm, track, cancel, limits, alerts) works over `POST /mcp` with server-enforced refusals, and the simulator runs the demo script against them through Bedrock. See the phase plan in `docs/SPEC.md`.
 
 | Tool | Does | Moves money |
 | --- | --- | --- |
@@ -40,6 +40,7 @@ Phase 3 (in progress): the web simulator and the AWS App Runner deployment. All 
 | `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
 | `set_rate_alert` | Tell the user when the rate reaches a target | |
 | `get_help` | Acme's reviewed answers: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
+| `get_pending` | What's waiting since last time: open quotes, transfers under review with their RFI, fired alerts, and the last transfer per recipient ("the usual") | |
 
 ## Run
 
