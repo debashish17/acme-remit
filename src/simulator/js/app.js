@@ -529,6 +529,7 @@ async function send(text, { voiceTurn = false } = {}) {
   const at = hit ? hit.at : -1;
   const rest = hit ? (reply.slice(0, hit.at) + reply.slice(hit.at + hit.len)).trim() : reply;
   if (rest && !(r.error && cards.length)) addBot(rest, Boolean(r.error));
+  if (r.notice) showMode(r.notice);
   cards.forEach((c, i) => append(c, 120 * i));
   pollState();
 
@@ -710,7 +711,7 @@ document.addEventListener("keyup", (e) => {
   if (e.code === "Space" && !typing(e.target)) release();
 });
 
-/* ---------- demo player: the scripted beats from SPEC, said by you one at a time ---------- */
+/* ---------- demo player: the server's demo beats, one at a time or all in a row ---------- */
 /** Stands for "read out the code from the latest text"; the code is only known at run time. */
 const CODE_BEAT = "{code}";
 const beatText = (b) =>
@@ -719,7 +720,9 @@ const beatText = (b) =>
       ? `The code is ${S.lastCode.split("").join(" ")}.`
       : "Read the code from the text message."
     : b;
-const BEATS = [
+// Replaced on connect by /sim/tools demo_beats, the same list the scripted mode follows.
+let BEATS = [
+  "Hi, anything I should know?",
   "What's the rupee at today?",
   "How much would Mum get for 2,000 dirhams?",
   "Send 2,000 dirhams to Mum.",
@@ -734,6 +737,16 @@ const BEATS = [
   "Tell me when the dirham hits 26.5.",
 ];
 let beat = -1;
+let auto = false; // "Play all" is running
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(cond, ms) {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) return false;
+    await sleep(200);
+  }
+  return true;
+}
 function demoSync() {
   const on = beat >= 0 && beat < BEATS.length;
   $("#demobar").hidden = !on;
@@ -742,21 +755,48 @@ function demoSync() {
   if (!on) return;
   $("#dCount").textContent = `${beat + 1} / ${BEATS.length}`;
   $("#dLine").textContent = `“${beatText(BEATS[beat])}”`;
-  $("#dSend").disabled = S.busy;
+  $("#dSend").disabled = S.busy || auto;
+  $("#dAuto").textContent = auto ? "Pause" : "Play all";
 }
 function demoGo(i) {
   beat = i;
+  if (i < 0) auto = false;
   demoSync();
+}
+/** Says the current beat and waits until the reply has been spoken. */
+async function sayBeat() {
+  if (BEATS[beat] === CODE_BEAT && !S.lastCode) {
+    void pollState();
+    if (!(await waitFor(() => S.lastCode, 15_000))) return false; // the text never came
+  }
+  const t = beatText(BEATS[beat]);
+  demoGo(beat + 1 < BEATS.length ? beat + 1 : -1);
+  await send(t);
+  return true;
 }
 $("#demoBtn").addEventListener("click", () => demoGo(beat >= 0 ? -1 : 0));
 $("#dSkip").addEventListener("click", () => demoGo(beat + 1 < BEATS.length ? beat + 1 : -1));
 $("#dExit").addEventListener("click", () => demoGo(-1));
 $("#dSend").addEventListener("click", () => {
-  if (S.busy) return;
-  if (BEATS[beat] === CODE_BEAT && !S.lastCode) return; // wait for the text to arrive
-  const t = beatText(BEATS[beat]);
-  demoGo(beat + 1 < BEATS.length ? beat + 1 : -1);
-  void send(t);
+  if (S.busy || auto) return;
+  void sayBeat();
+});
+$("#dAuto").addEventListener("click", async () => {
+  if (auto) {
+    auto = false;
+    demoSync();
+    return;
+  }
+  auto = true;
+  demoSync();
+  while (auto && beat >= 0) {
+    await waitFor(() => !S.busy, 60_000);
+    if (!auto || beat < 0) break;
+    if (!(await sayBeat())) break;
+    await sleep(700); // a breath between beats
+  }
+  auto = false;
+  demoSync();
 });
 
 /* ---------- ledger strip and live updates from /sim/state ---------- */
@@ -808,10 +848,26 @@ function renderState(s) {
   metaLine();
 }
 let meta = { version: "", tools: 0 };
+
+/** The mode banner: scripted (no language model) is explained up front; a notice flashes it. */
+const SCRIPTED_NOTE =
+  "Scripted demo: no language model is configured, so Play demo and the suggestions run the real tools from a fixed script. For free conversation, add AWS credentials (Bedrock) or an OpenAI-compatible key; see the README.";
+function showMode(notice) {
+  const n = $("#modeNote");
+  n.hidden = S.mode !== "scripted" && !notice;
+  n.textContent = notice || SCRIPTED_NOTE;
+  if (notice) {
+    n.classList.remove("flash");
+    void n.offsetWidth; // restart the animation
+    n.classList.add("flash");
+  }
+}
 function metaLine() {
   const left = $("#pMeta").dataset.left;
+  const model = S.mode === "scripted" ? "scripted, no model" : (S.llm?.model ?? "");
+  const calls = left && S.mode !== "scripted" ? ` · ${left} assistant calls left today` : "";
   $("#pMeta").textContent =
-    `MCP · Streamable HTTP · ${meta.version || "?"} · ${meta.tools} tools${left ? ` · ${left} assistant calls left today` : ""}`;
+    `MCP · Streamable HTTP · ${meta.version || "?"} · ${meta.tools} tools${model ? ` · ${model}` : ""}${calls}`;
 }
 let polling = false;
 async function pollState() {
@@ -872,6 +928,10 @@ async function connect() {
     $("#pStatus").textContent = "Protocol · connected";
     meta = { version: t.protocol_version, tools: t.tools.length };
     pollyVoice = t.tts ?? null;
+    if (Array.isArray(t.demo_beats) && t.demo_beats.length) BEATS = [...t.demo_beats];
+    S.mode = t.mode ?? "bedrock";
+    S.llm = t.llm ?? null;
+    showMode();
     setPolly(pollyVoice ? (text) => api.speak(text) : null);
     fillVoices();
     metaLine();
