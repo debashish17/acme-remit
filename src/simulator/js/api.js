@@ -73,6 +73,7 @@ export const api = {
       body: { text, ...(conversationId ? { conversation_id: conversationId } : {}) },
     }),
   state: (since) => call(`/sim/state?since=${encodeURIComponent(since)}`),
+  speak: (text) => call("/sim/speak", { method: "POST", body: { text }, devToo: true }),
 
   dev: (action, body = {}) => call(`/dev/${action}`, { method: "POST", body, dev: true }),
 };

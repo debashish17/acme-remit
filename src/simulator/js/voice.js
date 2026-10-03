@@ -106,6 +106,46 @@ export function setPreferredVoice(name) {
   preferred = name || "";
   pickedVoice = null;
 }
+
+/* ---------- Amazon Polly, through the server (POST /sim/speak) ---------- */
+export const POLLY = "polly";
+let pollyFetch = null; // (text) => Promise<{ audio: base64 mp3, marks: [{ time, start }] }>
+let playing = null; // the <audio> element currently speaking
+
+/** Lets speak() use Polly when the picker chooses it; null switches it off. */
+export function setPolly(fetcher) {
+  pollyFetch = fetcher;
+}
+
+/** Plays Polly's audio and fires onWord at each word mark. Rejects if it cannot start. */
+async function speakPolly(text, onWord) {
+  const r = await pollyFetch(text);
+  const bytes = Uint8Array.from(atob(r.audio), (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+  const audio = new Audio(url);
+  playing = audio;
+  let raf = 0;
+  let i = 0;
+  const step = () => {
+    const ms = audio.currentTime * 1000;
+    while (i < r.marks.length && r.marks[i].time <= ms) onWord?.(r.marks[i++].start);
+    if (!audio.paused && !audio.ended) raf = requestAnimationFrame(step);
+  };
+  const finished = new Promise((resolve) => {
+    const done = () => {
+      cancelAnimationFrame(raf);
+      URL.revokeObjectURL(url);
+      if (playing === audio) playing = null;
+      resolve();
+    };
+    audio.addEventListener("ended", done);
+    audio.addEventListener("pause", done);
+    audio.addEventListener("error", done);
+  });
+  await audio.play(); // rejects if the browser blocks playback: the caller falls back
+  raf = requestAnimationFrame(step);
+  return finished;
+}
 /** Calls fn when the browser's voice list loads or changes (it arrives late in Chrome). */
 export function onVoicesChanged(fn) {
   if (voice.canSpeak) speechSynthesis.addEventListener("voiceschanged", fn);
@@ -114,7 +154,7 @@ function pickVoice() {
   if (pickedVoice) return pickedVoice;
   const vs = speechSynthesis.getVoices();
   pickedVoice =
-    (preferred && vs.find((v) => v.name === preferred)) ||
+    (preferred && preferred !== POLLY && vs.find((v) => v.name === preferred)) ||
     browserVoices()[0] ||
     vs.find((v) => /^en/i.test(v.lang)) ||
     null;
@@ -128,7 +168,18 @@ onVoicesChanged(() => {
  * Speaks text. onWord(charIndex) fires at each word as it is spoken: from the engine's boundary
  * events when it sends them, otherwise from a timer that paces the words. Resolves when done.
  */
-export function speak(text, { onWord } = {}) {
+export async function speak(text, { onWord } = {}) {
+  if (preferred === POLLY && pollyFetch && !voice.muted) {
+    try {
+      return await speakPolly(text, onWord);
+    } catch {
+      /* Polly unavailable or blocked: use the browser's voice below */
+    }
+  }
+  return speakBrowser(text, { onWord });
+}
+
+function speakBrowser(text, { onWord } = {}) {
   return new Promise((resolve) => {
     const words = [...text.matchAll(/\S+/g)].map((m) => m.index);
     let timer = null;
@@ -175,5 +226,6 @@ export function speak(text, { onWord } = {}) {
 }
 
 export function stopSpeaking() {
+  playing?.pause();
   if (voice.canSpeak) speechSynthesis.cancel();
 }

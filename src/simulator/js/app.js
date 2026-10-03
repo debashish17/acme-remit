@@ -10,6 +10,8 @@ import {
   listen,
   micLevel,
   onVoicesChanged,
+  POLLY,
+  setPolly,
   setPreferredVoice,
   speak,
   stopListening,
@@ -150,15 +152,20 @@ setVoice(local.get("acme.voice", "on") !== "off");
 
 /* ---------- voice picker ---------- */
 const voiceSel = $("#voiceSel");
+let pollyVoice = null; // { voice, engine } when the server offers Amazon Polly
 function fillVoices() {
-  const chosen = local.get("acme.voiceName", "");
   const voices = browserVoices();
-  voiceSel.replaceChildren(new Option("Auto voice", ""));
+  voiceSel.replaceChildren();
+  if (pollyVoice) voiceSel.append(new Option(`Amazon Polly · ${pollyVoice.voice} (en-IN)`, POLLY));
+  voiceSel.append(new Option("Browser · auto", ""));
   for (const v of voices) {
     const name = v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s*-\s*English.*$/, "");
     voiceSel.append(new Option(`${name} · ${v.lang}`, v.name));
   }
-  voiceSel.value = voices.some((v) => v.name === chosen) ? chosen : "";
+  // Polly is the default when offered; a saved choice wins if it is still available.
+  const chosen = local.get("acme.voiceName", pollyVoice ? POLLY : "");
+  const available = [...voiceSel.options].some((o) => o.value === chosen);
+  voiceSel.value = available ? chosen : pollyVoice ? POLLY : "";
   setPreferredVoice(voiceSel.value);
 }
 fillVoices();
@@ -864,6 +871,9 @@ async function connect() {
     proto.classList.remove("down");
     $("#pStatus").textContent = "Protocol · connected";
     meta = { version: t.protocol_version, tools: t.tools.length };
+    pollyVoice = t.tts ?? null;
+    setPolly(pollyVoice ? (text) => api.speak(text) : null);
+    fillVoices();
     metaLine();
     if (!feed.childElementCount) {
       protoHeading(
