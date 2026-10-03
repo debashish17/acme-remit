@@ -16,6 +16,8 @@ Metadata:
         Parameters: [CreateService, InstanceCpu, InstanceMemory, EnableDevControls]
       - Label: { default: "Bedrock" }
         Parameters: [BedrockModelId, FoundationModelId, SimDailyBedrockCalls]
+      - Label: { default: "Voice (Amazon Polly)" }
+        Parameters: [PollyVoice, PollyEngine, SimDailyTtsChars]
       - Label: { default: "GitHub deploys" }
         Parameters:
           [
@@ -59,6 +61,19 @@ Parameters:
     Type: Number
     Default: 500
     MinValue: 1
+  PollyVoice:
+    Type: String
+    Default: Kajal
+    Description: Amazon Polly voice for the simulator's assistant, or none for the browser voice.
+  PollyEngine:
+    Type: String
+    Default: neural
+    AllowedValues: [standard, neural, generative, long-form]
+  SimDailyTtsChars:
+    Type: Number
+    Default: 100000
+    MinValue: 1
+    Description: Characters Polly may bill per day (each reply bills its length twice).
   GitHubOwner:
     Type: String
     Default: debashish17
@@ -203,7 +218,7 @@ Resources:
       com.aws.cloudformation.Context:
         why: Permissions of AppRunnerInstanceRole, kept as a customer-managed policy.
     Properties:
-      Description: Acme Remit runtime - Converse on one Bedrock model, read its own three secrets.
+      Description: Acme Remit runtime - Converse on one Bedrock model, Polly speech, read its own three secrets.
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -217,6 +232,12 @@ Resources:
               - !Sub "arn:${AWS::Partition}:bedrock:us-east-1::foundation-model/${FoundationModelId}"
               - !Sub "arn:${AWS::Partition}:bedrock:us-east-2::foundation-model/${FoundationModelId}"
               - !Sub "arn:${AWS::Partition}:bedrock:us-west-2::foundation-model/${FoundationModelId}"
+          # SynthesizeSpeech has no resource-level permissions (only lexicons do), so "*" is the
+          # narrowest scope; the server caps billed characters per day.
+          - Sid: PollySpeech
+            Effect: Allow
+            Action: polly:SynthesizeSpeech
+            Resource: "*"
           - Sid: ReadOwnSecrets
             Effect: Allow
             Action: secretsmanager:GetSecretValue
@@ -265,6 +286,12 @@ Resources:
                 Value: !Ref BedrockModelId
               - Name: SIM_DAILY_BEDROCK_CALLS
                 Value: !Ref SimDailyBedrockCalls
+              - Name: POLLY_VOICE
+                Value: !Ref PollyVoice
+              - Name: POLLY_ENGINE
+                Value: !Ref PollyEngine
+              - Name: SIM_DAILY_TTS_CHARS
+                Value: !Ref SimDailyTtsChars
               - Name: TICKER_MS
                 Value: "15000"
               - Name: RATES_URL
