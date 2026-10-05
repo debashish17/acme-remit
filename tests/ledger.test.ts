@@ -182,7 +182,7 @@ describe("LedgerService.tick", () => {
 
 describe("LedgerService.cancel", () => {
   it("cancel in ON_HOLD refunds the amount charged (fee included) and lowers monthly used: the SPEC beat", async () => {
-    // 16,500 used; send 2,000 to Mum -> 18,500; cancel the 13,000 NRE transfer -> 5,500 used.
+    // 16,500 used; send 2,000 to Mum -> 18,500; cancel the 5,000 NRE transfer -> 13,500 used.
     ok(core.ledger.confirm(USER_ID, (await prepared("ben_01", 2000)).token, CALLER));
     expect(core.limits.remaining(USER_ID).monthly.used_minor).toBe(1_850_000);
 
@@ -191,12 +191,12 @@ describe("LedgerService.cancel", () => {
       status: "ON_HOLD",
       customer_label: "Under review",
       cancellable: true,
-      refund_minor: 1_300_000,
+      refund_minor: 500_000,
       expires_at: "2026-10-15T08:05:00.000Z",
     });
     expect(preview.cancel_token).toMatch(/^cx_/);
     expect(preview.preview).toBe(
-      "Cancel the 13,000 dirham transfer to your NRE account. 13,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?",
+      "Cancel the 5,000 dirham transfer to your NRE account. 5,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?",
     );
 
     const done = ok(core.ledger.cancel(USER_ID, "ACM-240120", preview.cancel_token, CALLER));
@@ -205,17 +205,17 @@ describe("LedgerService.cancel", () => {
       status: "CANCELLED",
       customer_label: "Cancelled",
       refund: {
-        amount_minor: 1_300_000,
+        amount_minor: 500_000,
         currency: "AED",
         to: "card ending 8812",
         eta: "2-7 working days",
       },
-      limits_now: { monthly: { remaining_minor: 1_450_000 }, daily: { remaining_minor: 800_000 } },
+      limits_now: { monthly: { remaining_minor: 650_000 }, daily: { remaining_minor: 800_000 } },
     });
-    expect(card.refunds).toEqual([{ userId: USER_ID, amountMinor: 1_300_000, ref: "ACM-240120" }]);
+    expect(card.refunds).toEqual([{ userId: USER_ID, amountMinor: 500_000, ref: "ACM-240120" }]);
     expect(ok(core.ledger.track(USER_ID, "ACM-240120"))).toMatchObject({
       status: "CANCELLED",
-      refund: { amount_minor: 1_300_000 },
+      refund: { amount_minor: 500_000 },
     });
   });
 
@@ -324,7 +324,7 @@ describe("LedgerService.track", () => {
   });
 
   it("returns the reason and refund details for RETURNED", () => {
-    expect(ok(core.ledger.track(USER_ID, "ACM-240115"))).toMatchObject({
+    expect(ok(core.ledger.track(USER_ID, "ACM-240113"))).toMatchObject({
       status: "RETURNED",
       reason: "recipient bank reported a name mismatch",
       refund: {
@@ -338,9 +338,9 @@ describe("LedgerService.track", () => {
   });
 
   it("returns the UTR for a seeded PAID_OUT transfer, and the latest when no ref is given", async () => {
-    expect(ok(core.ledger.track(USER_ID, "acm-240118"))).toMatchObject({
+    expect(ok(core.ledger.track(USER_ID, "acm-240116"))).toMatchObject({
       status: "PAID_OUT",
-      utr: "HDFCR52026100200240118",
+      utr: "HDFCR52026100200240116",
     });
     expect(ok(core.ledger.track(USER_ID)).transfer_ref).toBe("ACM-240120");
     const { transfer_ref } = ok(
@@ -362,7 +362,7 @@ describe("LedgerService.track", () => {
 describe("LedgerService.history", () => {
   it("totals and limits_used match the seeded rows (last 3 months)", () => {
     const h = core.ledger.history(USER_ID, { months: 3 });
-    // Aug: Mum, friend (RETURNED); Sep: Mum, brother; Oct: Mum, brother, NRE (ON_HOLD)
+    // Aug: Mum, friend (RETURNED); Sep: Mum, brother; Oct: Mum, brother, NRE x3 (the last ON_HOLD)
     expect(h.transfers.map((t) => t.transfer_ref)).toEqual([
       "ACM-240120",
       "ACM-240119",
@@ -371,9 +371,11 @@ describe("LedgerService.history", () => {
       "ACM-240116",
       "ACM-240115",
       "ACM-240114",
+      "ACM-240113",
+      "ACM-240112",
     ]);
     expect(h.totals).toEqual({
-      count: 7,
+      count: 9,
       send_amount_minor: 2_200_000, // the returned 500 is not counted as sent
       currency: "AED",
       returned: 1,
@@ -383,7 +385,7 @@ describe("LedgerService.history", () => {
       monthly: { used_minor: 1_650_000, limit_minor: 2_000_000, resets_on: "2026-11-01" },
       daily: { used_minor: 0, limit_minor: 1_000_000 },
     });
-    expect(h.transfers.find((t) => t.transfer_ref === "ACM-240115")).toMatchObject({
+    expect(h.transfers.find((t) => t.transfer_ref === "ACM-240113")).toMatchObject({
       status: "RETURNED",
       refund_minor: 47_500,
     });
@@ -393,8 +395,8 @@ describe("LedgerService.history", () => {
     const mum = core.ledger.history(USER_ID, { beneficiaryId: "ben_01" });
     expect(mum.totals.count).toBe(8);
     expect(mum.transfers.every((t) => t.recipient === "Mum")).toBe(true);
-    expect(core.ledger.history(USER_ID).totals.count).toBe(7);
-    expect(core.ledger.history(USER_ID, { months: 1 }).totals.count).toBe(3);
+    expect(core.ledger.history(USER_ID).totals.count).toBe(9);
+    expect(core.ledger.history(USER_ID, { months: 1 }).totals.count).toBe(5);
   });
 });
 

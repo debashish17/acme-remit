@@ -85,12 +85,14 @@ export function registerTransferTools(server: McpServer, core: Core): void {
           .min(1)
           .max(200)
           .describe("The confirmation_token from prepare_transfer."),
+        // Any short text: the server reads digits or words (core/spoken.ts), and anything that
+        // isn't six digits is a structured OTP_INVALID rather than a schema error.
         otp: z
           .string()
-          .regex(/^[\d\s-]{6,20}$/, "the 6-digit code the user read out")
+          .max(100)
           .optional()
           .describe(
-            "The 6-digit code from the text message, as the user read it out. Omit on the first call.",
+            'The 6-digit code from the text message, as the user read it out: digits or words, such as "482913" or "four eight two nine one three". Omit on the first call.',
           ),
       },
       annotations: MOVES_MONEY,

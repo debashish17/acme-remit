@@ -1,6 +1,6 @@
 {
   "name": "mcp-confirm-gate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Single-use, caller-bound confirmation tokens with an optional out-of-band step-up code, for MCP tools that move money or do anything consequential.",
   "license": "MIT",
   "author": "debashish17",
@@ -16,6 +16,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": false,

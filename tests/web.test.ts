@@ -60,6 +60,14 @@ describe("simulator page", () => {
     expect(res.headers["permissions-policy"]).toContain("microphone=(self)");
   });
 
+  it("sends HSTS only on HTTPS (behind App Runner's TLS), never on plain local HTTP", async () => {
+    const a = app();
+    const local = await request(a).get("/health");
+    expect(local.headers["strict-transport-security"]).toBeUndefined();
+    const hosted = await request(a).get("/health").set("X-Forwarded-Proto", "https");
+    expect(hosted.headers["strict-transport-security"]).toBe("max-age=31536000; includeSubDomains");
+  });
+
   it("serves its modules, stylesheet and fonts with the right types", async () => {
     const a = app();
     const js = await request(a).get("/js/app.js");

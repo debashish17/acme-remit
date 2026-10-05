@@ -433,7 +433,7 @@ export function helpCard(h) {
     <p class="eyebrow">Acme help · ${esc(h.title)}</p>
     <p>${esc(h.answer)}</p>
     <ul class="points">${points}</ul>
-    <p class="foot">${esc(h.source)} · reviewed ${esc(fmt.day(h.last_reviewed))}${h.disclaimer ? ` · ${esc(h.disclaimer)}` : ""}</p></article>`);
+    <p class="foot">${esc(h.source)} · ${h.last_reviewed ? `reviewed ${esc(fmt.day(h.last_reviewed))}` : "demo text, not yet compliance-reviewed"}${h.disclaimer ? ` · ${esc(h.disclaimer)}` : ""}</p></article>`);
 }
 
 export function alertCard(a) {

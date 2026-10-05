@@ -42,7 +42,7 @@ Phase 4b (MCP Apps view), on top of Phases 1–4. All 14 tools work over `POST /
 | `cancel_transfer` | Preview with a cancel token, then cancel and refund before payout | **yes** |
 | `check_limits` | Tier, remaining limits, plain-words explanation of any refusal | |
 | `set_rate_alert` | Tell the user when the rate reaches a target | |
-| `get_help` | Acme's reviewed answers: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
+| `get_help` | Acme's own answers (demo text, pending compliance review): documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | |
 | `get_pending` | What's waiting since last time: open quotes, transfers under review with their RFI, fired alerts, and the last transfer per recipient ("the usual") | |
 
 ## Run
@@ -83,7 +83,7 @@ pnpm dev
 # MCP endpoint: POST http://127.0.0.1:3000/mcp  (Bearer token from .env)
 ```
 
-`pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
+`pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm e2e` (Playwright, using your installed Chrome; scripted mode, so no model or AWS calls) are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
 
 ### The simulator
 
@@ -212,22 +212,35 @@ How the simulator hosts it:
 }
 ```
 
-The view is tested in CI, in our simulator in a headless browser, and in the official reference host. Hosts that connect only to remote servers, such as claude.ai, need a hosted copy over HTTPS.
+CI tests the view's state logic, the resource, the tool links and the simulator's host routes, and a Playwright test in Chrome runs Play all and types a code into the view through to Paid out (`pnpm e2e`). The view was also checked by hand in the official reference host on 2026-10-04. Hosts that connect only to remote servers, such as claude.ai, need a hosted copy over HTTPS.
 
 The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTML file (`pnpm dev`, `pnpm build` and the tests run that step first), and the server serves it with `resources/read`. The contract is the "MCP Apps view" section of `docs/SPEC.md`.
 
 ## Open source: `mcp-confirm-gate`
 
-The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. It is published on npm as [`mcp-confirm-gate`](https://www.npmjs.com/package/mcp-confirm-gate) (`npm install mcp-confirm-gate`, MIT, no runtime dependencies). The source and its 13 tests, run in CI with the rest, are in [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate).
+The confirmation pattern behind every transfer here, as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. It is published on npm as [`mcp-confirm-gate`](https://www.npmjs.com/package/mcp-confirm-gate) (`npm install mcp-confirm-gate`, MIT, no runtime dependencies). The source and its 16 tests, run in CI with the rest, are in [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate). Use 0.2.0 or later: in 0.1.0, parallel wrong codes were not counted (see its [CHANGELOG](packages/mcp-confirm-gate/CHANGELOG.md)). The server here keeps its own SQLite implementation of the same pattern, whose checks run synchronously, so it was not affected. It does not import the package.
 
 ## Threat model
 
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 - **The step-up code proves possession of the phone, not secrecy from bystanders.** It is texted to the registered phone and read aloud, so anyone nearby hears it. It still shows that whoever approves holds the customer's phone right now. It is single-use, lasts 5 minutes, names the amount and recipient, and three wrong tries void the confirmation. A production add-on should prefer an approval push in the provider's app.
 - **The transfer view holds the confirmation token, as the model does.** An MCP Apps view receives each linked tool's result, including the token it needs to send the code. Without the code from the phone, the token cannot move money. Typing the code into the view also keeps it out of the conversation, and away from anyone who would hear it read aloud.
+- **In the simulator, the access code is the demo customer's phone.** The simulated phone shows each step-up code, and `GET /sim/state` returns it, behind `SIM_ACCESS_CODE`. So on a hosted copy, whoever holds the access code can approve transfers on the demo ledger, as the customer can with their real phone. Nothing real moves; treat that code as the demo customer's credentials. Gating the phone behind another code would stop judges from finishing a transfer.
 - **The consent guard is the simulator's, not Alexa+'s.** The simulator refuses to spend a token in the turn that issued it. Real Alexa+ has no such guard, so there the server-side code is the defence against a model that prepares and confirms in one breath: the code is never in any tool result, so the model cannot supply it.
 - **`cancel_transfer` has no step-up, by design.** It still needs a read-back preview and its own single-use token, but it can only refund the full amount to the sender's own card, before payout. It cannot send money anywhere new.
 - **Everything else is enforced server-side for every client:** quotes lock the rate, tokens are single-use, expire in 5 minutes and are bound to the authenticated caller (never a session), limits are re-checked at confirm, and refusals are structured. One demo customer sits behind one Bearer token; production would use account linking (OAuth 2.1 with PKCE). The public simulator is metered (access code, per-IP limits, daily model and voice caps). Logs show token prefixes only, and codes are stored only as salted hashes.
 - **Out of scope:** voice biometrics, device signals, fraud scoring and real sanctions screening (modelled as "under review", with no reason ever given).
+
+## Before this moves real money
+
+The ledger is simulated, and these are deliberate shortcuts that a production version must replace:
+
+- **Card charges and the ledger.** The mock card is charged inside the SQLite transaction, so a decline rolls back every write. A real card processor's call is asynchronous and can fail or time out after the money is taken, so it can't run inside that transaction. Confirm needs an idempotency key per confirmation, a pending state, and reconciliation through an outbox and the processor's webhooks.
+- **References.** `ACM-` references are sequential (`MAX + 1`). Every lookup is scoped to the user, so this leaks nothing here, but production references should be random or keyed.
+- **One server per request.** Stateless Streamable HTTP builds a new `McpServer`, with its 14 tools and one resource, for each `POST /mcp`. That is fine at demo traffic; at scale, build it once per process.
+- **Quotes don't reserve limit.** Confirm re-checks limits, so a second quote that no longer fits is refused safely, but `get_pending` can still list it as open. Production should re-check open quotes, or reserve limit for them.
+- **Everything the simulation stands in for:** account linking (OAuth 2.1 with PKCE) instead of one Bearer token, Postgres instead of SQLite on one instance, a real SMS or push provider (preferably an in-app approval push), real sanctions screening, and a compliance review of every spoken string.
 
 ## License
 

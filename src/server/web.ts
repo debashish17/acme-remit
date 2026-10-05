@@ -22,7 +22,10 @@ export const CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export const securityHeaders: RequestHandler = (_req, res, next) => {
+export const securityHeaders: RequestHandler = (req, res, next) => {
+  // HTTPS only: App Runner terminates TLS and sets X-Forwarded-Proto (the app trusts one proxy
+  // hop). Browsers ignore HSTS over plain HTTP, and a local run should never pin localhost.
+  if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   res.setHeader("Content-Security-Policy", CSP);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");

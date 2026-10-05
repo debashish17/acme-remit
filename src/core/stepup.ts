@@ -7,6 +7,7 @@ import { OTP } from "./policy.js";
 import { isRefusal, refuse } from "./refusal.js";
 import { addMinutes } from "./time.js";
 import { consoleLogger, type Clock, type Logger, type Refusal } from "./types.js";
+import { readCode } from "./spoken.js";
 
 /**
  * Step-up check before money moves (SPEC "Quote and token lifecycle"), like 3-D Secure on a card
@@ -96,7 +97,7 @@ export class StepUpService {
     if (otp === undefined)
       return this.challenge(userId, { target, tokenHash, expiresAt }, callerId);
 
-    const code = otp.replace(/\D/g, "");
+    const code = readCode(otp, OTP.digits);
     const row = this.db
       .prepare(
         `SELECT id, code_hash, expires_at, attempts, verified_at FROM step_up_challenges
@@ -116,9 +117,17 @@ export class StepUpService {
         "That code has expired and nothing was sent. If the user still wants to go ahead, call confirm_transfer with the confirmation_token alone to text a new code.",
       );
     }
+    // Not six digits however it is read: it can't be the code, so it uses no try.
+    if (code === undefined) {
+      return refuse(
+        "OTP_INVALID",
+        "That wasn't six digits, and nothing was sent. Ask the user to read the 6-digit code from the latest Acme text again, one digit at a time.",
+        { attempts_left: OTP.maxAttempts - row.attempts },
+      );
+    }
     const given = Buffer.from(codeHash(row.id, code), "hex");
     const expected = Buffer.from(row.code_hash, "hex");
-    if (code.length !== OTP.digits || !timingSafeEqual(given, expected)) {
+    if (!timingSafeEqual(given, expected)) {
       const attempts = row.attempts + 1;
       this.db
         .prepare("UPDATE step_up_challenges SET attempts = ? WHERE id = ?")

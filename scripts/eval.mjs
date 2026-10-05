@@ -41,8 +41,8 @@ const AMOUNT = (n) => {
     500: "five hundred",
     1500: "(one thousand five hundred|fifteen hundred)",
     2000: "two thousand",
-    13000: "thirteen thousand",
-    14500: "fourteen thousand five hundred",
+    5000: "five thousand",
+    6500: "(six thousand five hundred|sixty five hundred)",
   };
   const digits = n.toLocaleString("en-US").replace(",", ",?");
   return new RegExp(`\\b(${digits}|${words[n] ?? "\\0"})\\b`, "i");
@@ -203,7 +203,7 @@ const SCENARIOS = {
       say: "Yes.",
       calls: ["cancel_transfer"],
       // The latest transfer is Mum's, so the cancel is checked from its own result.
-      check: { cancelled: true, say: AMOUNT(13000) },
+      check: { cancelled: true, say: AMOUNT(5000) },
     },
     {
       say: "Tell me when the dirham hits 26.5.",

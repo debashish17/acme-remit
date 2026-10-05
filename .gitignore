@@ -27,6 +27,10 @@ pnpm-debug.log*
 # coverage
 coverage/
 
+# playwright
+test-results/
+playwright-report/
+
 # OS / editor
 .DS_Store
 Thumbs.db

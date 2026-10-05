@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb, type Db } from "../src/db/connection.js";
 import { migrate } from "../src/db/migrate.js";
 import { seed } from "../src/db/seed.js";
+import { VERIFIED_TIER } from "../src/core/policy.js";
 
 const NOW = new Date("2026-10-15T08:00:00Z");
 
@@ -50,7 +51,25 @@ describe("seed", () => {
     expect(count("users")).toBe(1);
     expect(count("beneficiaries")).toBe(4);
     expect(count("rates_history")).toBe(21);
-    expect(count("transfers")).toBe(13);
+    expect(count("transfers")).toBe(15);
+  });
+
+  it("every seeded transfer fits the limits it would be checked against today", () => {
+    // A card-funded transfer the policy would refuse can't be in the history (review finding 2).
+    seed(db, NOW);
+    const rows = db
+      .prepare("SELECT ref, send_amount_minor AS amount, created_at FROM transfers")
+      .all() as { ref: string; amount: number; created_at: string }[];
+    const byDay = new Map<string, number>();
+    const byMonth = new Map<string, number>();
+    for (const r of rows) {
+      expect(r.amount, r.ref).toBeLessThanOrEqual(VERIFIED_TIER.perTransactionMinor);
+      const day = r.created_at.slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + r.amount);
+      byMonth.set(day.slice(0, 7), (byMonth.get(day.slice(0, 7)) ?? 0) + r.amount);
+    }
+    for (const [day, sum] of byDay) expect(sum, day).toBeLessThanOrEqual(VERIFIED_TIER.dailyMinor);
+    for (const [m, sum] of byMonth) expect(sum, m).toBeLessThanOrEqual(VERIFIED_TIER.monthlyMinor);
   });
 
   it("leaves 16,500 AED used this month, in minor units", () => {
@@ -84,7 +103,7 @@ describe("seed", () => {
       unknown
     >;
     expect(t.ref).toBe("ACM-240120");
-    expect(t.send_amount_minor).toBe(1_300_000);
+    expect(t.send_amount_minor).toBe(500_000);
     expect(t.return_reason).toBeNull();
     const rfi = JSON.parse(t.hold_rfi_json as string) as Record<string, unknown>;
     expect(rfi).toEqual({
@@ -118,9 +137,10 @@ describe("seed", () => {
       ref: string;
       utr: string | null;
     }[];
-    expect(paid).toHaveLength(11);
+    expect(paid).toHaveLength(13);
     for (const t of paid) {
-      expect(t.utr).toMatch(/^(HDFCR5\d{16}|\d{12})$/);
+      // Bank deposits carry the bank's IFSC prefix (Mum: HDFC, the NRE account: SBI); UPI, 12 digits.
+      expect(t.utr).toMatch(/^((HDFC|SBIN|ICIC)R5\d{16}|\d{12})$/);
       const n = db
         .prepare("SELECT COUNT(*) AS n FROM transfer_events WHERE ref = ?")
         .get(t.ref) as {

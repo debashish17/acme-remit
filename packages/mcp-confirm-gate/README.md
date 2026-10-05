@@ -86,24 +86,36 @@ Without `stepUp`, `gate.consume(token, caller)` is the whole confirmation.
 
 ## Storage
 
-`MemoryStore` (the default) suits tests and a single process. For anything else, implement `TokenStore`. The one rule: `markUsed` must be atomic, so of two concurrent confirms exactly one wins:
+`MemoryStore` (the default) suits tests and a single process. For anything else, implement `TokenStore`.
+
+Agents can call tools in parallel, so three methods must be atomic. Each protects a count that a read-then-write would let parallel calls share:
 
 ```sql
-UPDATE confirm_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL;  -- succeed only if 1 row changed
+-- markUsed: of concurrent confirms, exactly one wins (succeed only if 1 row changed)
+UPDATE confirm_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL;
+
+-- claimSend: count the code against the cap and store it, in one step
+UPDATE confirm_tokens SET code_hash = ?, salt = ?, code_expires_at = ?, attempts = 0, sends = sends + 1
+ WHERE hash = ? AND sends < ? RETURNING sends;
+
+-- claimAttempt: reserve a try at the current code before the code is checked
+UPDATE confirm_tokens SET attempts = attempts + 1 WHERE hash = ? AND code_hash = ? RETURNING attempts;
 ```
+
+The gate reserves a try before it compares the code, so however many guesses arrive at once, no more than `maxAttempts` are compared.
 
 The store never holds a token, only its SHA-256, and a step-up code only as a salted hash. Codes are compared in constant time.
 
 ## What it does and doesn't protect against
 
-- **It does:** a model that tries to confirm without the user's answer (it has no valid code), replays (single use), a token leaking to another caller (caller binding), stale approvals (short lifetimes, a newer token replaces the older), and brute-forcing a code (3 tries, then the token is void).
+- **It does:** a model that tries to confirm without the user's answer (it has no valid code), replays (single use), a token leaking to another caller (caller binding), stale approvals (short lifetimes, a newer token replaces the older), and brute-forcing a code (3 tries, then the token is void, including when guesses arrive in parallel; see the CHANGELOG for 0.1.0, where they did not).
 - **A spoken code proves possession, not secrecy.** If the user reads the code aloud to a voice assistant, anyone nearby hears it. It still shows that whoever approves holds the phone right now. Where you can, prefer an approval push in your own app.
 - **Consent within one turn is the client's job.** An assistant that prepares and then confirms in the same breath should be stopped by the client too. With step-up, the server is protected either way, because the model never sees the code.
 - **It doesn't replace** your business checks (limits, fraud, sanctions). Run them in prepare, and again before executing.
 
 ## Origin
 
-Extracted from [Acme Remit](https://github.com/debashish17/acme-remit), an Alexa+ add-on (MCP server) for sending money home from the UAE to India, built for the Amazon Developer Hackathon 2026. There, prepare and confirm guard every transfer and cancellation.
+The pattern comes from [Acme Remit](https://github.com/debashish17/acme-remit), an Alexa+ add-on (MCP server) for sending money home from the UAE to India, built for the Amazon Developer Hackathon 2026, where prepare and confirm guard every transfer and cancellation. Acme Remit keeps its own SQLite-backed implementation and does not depend on this package; this package generalises the pattern with a pluggable store.
 
 ## License
 

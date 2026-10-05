@@ -5,7 +5,7 @@ import { OTP, VERIFIED_TIER } from "../src/core/policy.js";
 const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
 
 describe("get_help content", () => {
-  it("answers every topic with a spoken answer, points, a source and a review date", () => {
+  it("answers every topic with a spoken answer, points and a source, and claims no review yet", () => {
     for (const topic of HELP_TOPICS) {
       const a = helpAnswer(topic);
       expect(a.topic).toBe(topic);
@@ -14,7 +14,8 @@ describe("get_help content", () => {
       expect(a.answer, topic).not.toMatch(/[*#`•]|^\s*-/m); // read aloud: no markdown
       expect(a.points.length, topic).toBeGreaterThan(0);
       expect(a.source, topic).not.toBe("");
-      expect(a.last_reviewed).toMatch(/^\d{4}-\d\d-\d\d$/);
+      // No compliance review has happened; set the date in help.ts when one does.
+      expect(a.last_reviewed, topic).toBeNull();
       for (const r of a.related) expect(HELP_TOPICS).toContain(r);
     }
   });

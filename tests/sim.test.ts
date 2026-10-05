@@ -382,7 +382,7 @@ describe("GET /sim/state", () => {
     expect(res.body.latest_transfer).toMatchObject({
       transfer_ref: "ACM-240120",
       customer_label: "Under review",
-      send_amount: 13000,
+      send_amount: 5000,
     });
     expect(res.body.limits.monthly).toMatchObject({ remaining: 3500, resets_on: "2026-11-01" });
     expect(res.body.open_quote).toBeNull();
@@ -542,7 +542,7 @@ describe("consent guard", () => {
     const first = await sim(app).chat("Cancel the one to my NRE account");
     expect(first.body.tool_calls[1]).toMatchObject({ name: "cancel_transfer", blocked: true });
     expect(core.ledger.track(USER_ID, "ACM-240120")).toMatchObject({ status: "ON_HOLD" });
-    expect(first.body.reply).toMatch(/^Cancel the 13,000 dirham transfer/);
+    expect(first.body.reply).toMatch(/^Cancel the 5,000 dirham transfer/);
 
     await sim(app).chat("Yes", first.body.conversation_id);
     expect(core.ledger.track(USER_ID, "ACM-240120")).toMatchObject({ status: "CANCELLED" });

@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConfirmGate, MemoryStore, tokenPrefix, type StepUpContext } from "../src/index.js";
+import {
+  ConfirmGate,
+  MemoryStore,
+  tokenPrefix,
+  type StepUpChallenge,
+  type StepUpContext,
+  type TokenRecord,
+  type TokenStore,
+} from "../src/index.js";
 
 const ALICE = "user:alice";
 const BOB = "user:bob";
@@ -167,5 +175,80 @@ describe("ConfirmGate with step-up", () => {
     const { token } = await gate.issue("t", ALICE);
     await gate.confirm(token, ALICE);
     expect(JSON.stringify(store.dump())).not.toContain(sent[0]?.code);
+  });
+});
+
+describe("ConfirmGate under parallel calls", () => {
+  /** A store whose every call takes a random few milliseconds, as a networked store would. */
+  class SlowStore implements TokenStore {
+    constructor(private readonly inner = new MemoryStore()) {}
+    private async later<T>(f: () => T): Promise<T> {
+      await new Promise((r) => setTimeout(r, Math.random() * 5));
+      return f();
+    }
+    put(r: TokenRecord) {
+      return this.later(() => this.inner.put(r));
+    }
+    get(h: string) {
+      return this.later(() => this.inner.get(h));
+    }
+    update(h: string, p: Partial<Omit<TokenRecord, "hash">>) {
+      return this.later(() => this.inner.update(h, p));
+    }
+    markUsed(h: string, at: number) {
+      return this.later(() => this.inner.markUsed(h, at));
+    }
+    expireTarget(t: string, at: number) {
+      return this.later(() => this.inner.expireTarget(t, at));
+    }
+    claimSend(h: string, c: StepUpChallenge, max: number) {
+      return this.later(() => this.inner.claimSend(h, c, max));
+    }
+    claimAttempt(h: string, codeHash: string) {
+      return this.later(() => this.inner.claimAttempt(h, codeHash));
+    }
+  }
+
+  function setup(store: TokenStore = new MemoryStore()) {
+    const sent: string[] = [];
+    const gate = new ConfirmGate({ store, stepUp: { send: (code) => void sent.push(code) } });
+    return { gate, sent };
+  }
+  const wrong = (code: string, i: number) =>
+    String((Number(code) + 1 + i) % 1_000_000).padStart(6, "0");
+
+  it("parallel guesses get no more tries than one after another, even with the right code among them", async () => {
+    const { gate, sent } = setup();
+    const { token } = await gate.issue("t", ALICE);
+    await gate.confirm(token, ALICE);
+    const code = sent[0] ?? "";
+    // 50 guesses at once; the right code is the 11th, after the 3 tries are gone.
+    const guesses = Array.from({ length: 50 }, (_, i) => (i === 10 ? code : wrong(code, i)));
+    const results = await Promise.all(guesses.map((g) => gate.confirm(token, ALICE, g)));
+    expect(results.filter((r) => r.ok)).toHaveLength(0);
+    expect(results.filter((r) => !r.ok && r.code === "OTP_INVALID")).toHaveLength(2);
+    // The token is void: the right code no longer works.
+    expect(await gate.confirm(token, ALICE, code)).toMatchObject({ ok: false });
+  });
+
+  it("holds with a slow, asynchronous store", async () => {
+    const { gate, sent } = setup(new SlowStore());
+    const { token } = await gate.issue("t", ALICE);
+    await gate.confirm(token, ALICE);
+    const code = sent[0] ?? "";
+    const results = await Promise.all(
+      Array.from({ length: 40 }, (_, i) => gate.confirm(token, ALICE, wrong(code, i))),
+    );
+    expect(results.filter((r) => !r.ok && r.code === "OTP_INVALID").length).toBeLessThanOrEqual(2);
+    expect(await gate.confirm(token, ALICE, code)).toMatchObject({ ok: false });
+  });
+
+  it("parallel requests for a code send no more than maxSends", async () => {
+    const { gate, sent } = setup(new SlowStore());
+    const { token } = await gate.issue("t", ALICE);
+    const results = await Promise.all(Array.from({ length: 10 }, () => gate.confirm(token, ALICE)));
+    expect(sent).toHaveLength(3);
+    expect(results.filter((r) => !r.ok && r.code === "STEP_UP_REQUIRED")).toHaveLength(3);
+    expect(results.filter((r) => !r.ok && r.code === "OTP_LOCKED")).toHaveLength(7);
   });
 });

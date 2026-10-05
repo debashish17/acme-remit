@@ -159,12 +159,12 @@ describe("demo script over MCP", () => {
     expect(t).not.toHaveProperty("reason");
   });
 
-  it('"Cancel the one to my NRE account": preview, "Yes", cancelled, 14,500 free', async () => {
+  it('"Cancel the one to my NRE account": preview, "Yes", cancelled, 6,500 free', async () => {
     const preview = await tool("cancel_transfer", { transfer_ref: "ACM-240120" });
     expect(preview.preview).toBe(
-      "Cancel the 13,000 dirham transfer to your NRE account. 13,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?",
+      "Cancel the 5,000 dirham transfer to your NRE account. 5,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?",
     );
-    expect(preview.refund).toBe(13000);
+    expect(preview.refund).toBe(5000);
 
     const done = await tool("cancel_transfer", {
       transfer_ref: "ACM-240120",
@@ -172,8 +172,8 @@ describe("demo script over MCP", () => {
     });
     expect(done).toMatchObject({
       status: "CANCELLED",
-      refund: { amount: 13000, currency: "AED", to: "card ending 8812" },
-      limits_now: { monthly: { remaining: 14500 } },
+      refund: { amount: 5000, currency: "AED", to: "card ending 8812" },
+      limits_now: { monthly: { remaining: 6500 } },
     });
   });
 
@@ -186,12 +186,12 @@ describe("demo script over MCP", () => {
   it("history reflects the session: one sent, one cancelled, one returned", async () => {
     const h = await tool("get_transfer_history", { months: 3 });
     expect(h.totals).toEqual({
-      count: 8,
-      send_amount: 11000, // 22,000 seeded + 2,000 sent - 13,000 cancelled
+      count: 10,
+      send_amount: 19000, // 22,000 seeded + 2,000 sent - 5,000 cancelled
       currency: "AED",
       returned: 1,
       cancelled: 1,
     });
-    expect(h.limits_used.monthly).toEqual({ used: 5500, limit: 20000, resets_on: "2026-11-01" });
+    expect(h.limits_used.monthly).toEqual({ used: 13500, limit: 20000, resets_on: "2026-11-01" });
   });
 });

@@ -8,7 +8,9 @@ import type { TierConfig } from "./policy.js";
  * policy values the limits and quotes enforce; the regulatory points name their source.
  *
  * REVIEW: this text is written for the hackathon and must be reviewed by a person who owns
- * compliance content before it is relied on. `last_reviewed` is the date of that review.
+ * compliance content before it is relied on. `last_reviewed` stays null until that review
+ * happens. Tax: India's Income-tax Act, 2025 replaces the 1961 Act from April 2026, so the
+ * reviewer should confirm the current gift provision before naming a section.
  */
 
 export const HELP_TOPICS = [
@@ -35,12 +37,13 @@ export interface HelpAnswer {
   answer: string;
   points: string[];
   source: string;
-  last_reviewed: string;
+  /** Date of the compliance review; null until one has happened. */
+  last_reviewed: string | null;
   disclaimer?: string;
   related: HelpTopic[];
 }
 
-const LAST_REVIEWED = "2026-10-03";
+const LAST_REVIEWED: string | null = null; // not yet reviewed: see REVIEW above
 const ACME = "Acme Remit customer policy (simulated for this demo)";
 const GENERAL =
   "General information, not legal or tax advice. Rules can change; check with your bank or a tax adviser.";
@@ -204,7 +207,7 @@ export function helpAnswer(topic: HelpTopic, tier: TierConfig = VERIFIED_TIER): 
           "Gifts from non-relatives: taxable for the recipient above 50,000 rupees a year",
           "Money sent to your own NRE account is not a gift",
         ],
-        source: "Income Tax Act 1961 (India), section 56(2)(x)",
+        source: "Indian income-tax law on gifts received",
         disclaimer: GENERAL,
         related: ["nre_nro"],
       });
