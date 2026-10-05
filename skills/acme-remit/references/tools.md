@@ -16,5 +16,5 @@ Amounts are in major units (AED, INR). Every tool can return `{ refused: { code,
 | `get_transfer_history` | optional `months`, `beneficiary_id` | Transfers (newest first) with totals and limits used | no |
 | `check_limits` | optional `refusal_code` | Tier, remaining daily and monthly limits, plain-words explanation | no |
 | `set_rate_alert` | `target`, `direction` (`above` or `below`) | Alert set, with today's rate | alert only |
-| `get_help` | `topic` | Acme's reviewed answer: documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | no |
+| `get_help` | `topic` | Acme's own answer (demo text, pending compliance review): documents, steps, recipients, NRE/NRO, LRS, tax, refunds, safety | no |
 | `get_pending` | none | Open quotes, transfers under review with their RFI, fired alerts, last transfer per recipient, `summary` | no |

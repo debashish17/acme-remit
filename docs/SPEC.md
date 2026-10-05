@@ -186,7 +186,7 @@ in:  { "topic": "lrs" }
 out: { "topic": "lrs", "title": "The Liberalised Remittance Scheme (LRS)",
        "answer": "The Liberalised Remittance Scheme covers money that residents of India send out of India, up to 250,000 US dollars a financial year. It does not apply to you sending money into India from the UAE, ...",
        "points": ["LRS: outward remittances by resident Indians, USD 250,000 per financial year", "..."],
-       "source": "Reserve Bank of India, Liberalised Remittance Scheme", "last_reviewed": "2026-10-03",
+       "source": "Reserve Bank of India, Liberalised Remittance Scheme", "last_reviewed": null,
        "disclaimer": "General information, not legal or tax advice. ...", "related": ["nre_nro", "tax"] }
 
 // 14 get_pending: cross-session context from the ledger (conversations themselves are not kept)
@@ -219,7 +219,7 @@ src/
     limits.ts        LimitService
     ledger.ts        LedgerService (confirm, transfers, status ticker)
     alerts.ts        AlertService
-    confirm.ts       ConfirmationGate (token issue/validate; published as mcp-confirm-gate)
+    confirm.ts       ConfirmationGate (token issue/validate; mcp-confirm-gate is a separate implementation of the pattern)
     stepup.ts        StepUpService (one-time code by SMS before confirm; simulated phone)
     pending.ts       PendingService (get_pending: cross-session context from the ledger)
     help.ts          get_help answers, built from the policy values
@@ -566,7 +566,7 @@ The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get 
 - [x] README: the view, and how to open it in another MCP Apps host
 
 * Milestone: in the simulator, with nothing but Node, sending money shows `ui://acme-remit/transfer` moving from quote to read-back with countdown to code entry to live receipt; a code typed in the view reaches the server through the host's `tools/call`, never through the model; `pnpm test`, `pnpm lint` and `pnpm typecheck` are green
-* Status: done. Checked in CI and in a headless browser (DOM only): read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
+* Status: done. CI covers the view's state logic, the resource, the tool links and the simulator's host routes. The browser flow was checked by hand in a headless browser (DOM only) and in the official reference host: read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
 
 **Phase 5 · Oct 19–21 · Video and write-ups**
 
@@ -612,7 +612,7 @@ Built around the step-up moment, the strongest 15 seconds we have: the assistant
 | 1:24–1:32 | "Send 500 to Rahul." → "Do you mean your brother Rahul Nair, or your friend Rahul Menon?" | Choose card from `resolve_beneficiary` |
 | 1:32–1:48 | "Where's Mum's money?" → paid out, with the bank reference (UTR). "And the one to my NRE account?" → under review, upload an updated Emirates ID in the app, and no reason given | Receipt steps reach Paid out (dev control "Advance ticker" before the take); status card with the action needed |
 | 1:48–2:04 | "Cancel the one to my NRE account." → the preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of the monthly limit free again | Cancel card, then the cancelled card; `cancel_transfer` twice in the panel; ledger strip updates |
-| 2:04–2:12 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's reviewed help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
+| 2:04–2:12 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's own help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
 | 2:12–2:20 | "Tell me when the dirham hits 26.5." → alert set, then fired | Alert card, then the toast (dev control "Fire rate alert") |
 | 2:20–2:38 | How it's built: 14 MCP tools over Streamable HTTP, the step-up and token tests passing, the conversation evals, CI green, runs with nothing but Node (scripted mode), Bedrock (Nova 2 Lite) or any OpenAI-compatible model for the live assistant, Polly for the voice, and the Agent Skill | Editor, terminal and the README's threat model |
 | 2:38–2:45 | "The ledger module is the only thing between this and a licensed exchange house's backend." | README real-vs-simulated table |
