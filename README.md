@@ -222,6 +222,8 @@ The confirmation pattern behind every transfer here, as a small, dependency-free
 
 ## Threat model
 
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
 - **The step-up code proves possession of the phone, not secrecy from bystanders.** It is texted to the registered phone and read aloud, so anyone nearby hears it. It still shows that whoever approves holds the customer's phone right now. It is single-use, lasts 5 minutes, names the amount and recipient, and three wrong tries void the confirmation. A production add-on should prefer an approval push in the provider's app.
 - **The transfer view holds the confirmation token, as the model does.** An MCP Apps view receives each linked tool's result, including the token it needs to send the code. Without the code from the phone, the token cannot move money. Typing the code into the view also keeps it out of the conversation, and away from anyone who would hear it read aloud.
 - **In the simulator, the access code is the demo customer's phone.** The simulated phone shows each step-up code, and `GET /sim/state` returns it, behind `SIM_ACCESS_CODE`. So on a hosted copy, whoever holds the access code can approve transfers on the demo ledger, as the customer can with their real phone. Nothing real moves; treat that code as the demo customer's credentials. Gating the phone behind another code would stop judges from finishing a transfer.
