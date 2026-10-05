@@ -206,3 +206,28 @@ Severity: **blocker** (stopped work), **major** (cost more than 30 min or needed
 - **Severity:** minor (blocks publishing until 2FA is set up; about 5 minutes)
 - **Workaround:** Turned on 2FA on the npm account, then ran `npm publish` again. It printed an `npmjs.com/auth/cli/...` link, opened the browser to confirm, and published 0.1.0. We did not use a bypass-2FA token.
 - **Suggestion:** npm CLI: on this 403, drop the generic dependency text and link the 2FA settings page; have `npm login` warn when the account cannot publish. Registry: say whether the policy applies to all publishes or only new packages.
+
+### 2026-10-05 · npm CLI 10.9.8 publish (`mcp-confirm-gate` 0.2.0) · An expired login looks like a missing package, 2FA needs a terminal, and a publish isn't listed straight away
+
+- **Task:** Publish the 0.2.0 security fix and deprecate 0.1.0.
+- **Steps:**
+  - `npm publish` from a shell whose saved token was two days old.
+  - Then `npm login`, and `npm publish` again from a non-interactive shell.
+  - Then `npm publish` from PowerShell, with browser approval.
+- **Expected:**
+  - An expired login says to log in again.
+  - The 2FA step works wherever `npm publish` runs.
+  - A successful publish is listed at once.
+- **Actual:**
+  1. With the expired token, `npm whoami` was a 401, but `npm publish` failed with `E404 ... 'mcp-confirm-gate@0.2.0' is not in this registry`, which looks like a wrong package name.
+  2. From a non-interactive shell, the publish failed with `EOTP` ("requires a one-time password from your authenticator"), even though the account confirms 2FA in the browser. The browser step ("Authenticate your account at …") appears only in a TTY.
+  3. After approval, the upload returned `PUT 202` with "Your package is being processed and may take a few minutes to become available". For about 4 minutes the registry listed only 0.1.0, while the deprecation of 0.1.0 made at the same time was already visible.
+- **Severity:** minor (about 20 minutes, mostly in working out the first error)
+- **Workaround:**
+  - `npm whoami` first: a 401 means log in again (`npm login`).
+  - Publish from an interactive terminal.
+  - Check the registry directly (`curl https://registry.npmjs.org/<name>`) and wait for processing.
+- **Suggestion:** npm CLI:
+  - report "not logged in or token expired" on a PUT 404 when `whoami` would 401
+  - say that web 2FA needs an interactive terminal, and offer the URL anyway
+  - print the "being processed" notice in the terminal output (it is in the debug log), with an expected wait
