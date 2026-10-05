@@ -7,4 +7,10 @@ export {
   type StepUpContext,
   type StepUpOptions,
 } from "./gate.js";
-export { MemoryStore, type Awaitable, type TokenRecord, type TokenStore } from "./store.js";
+export {
+  MemoryStore,
+  type Awaitable,
+  type StepUpChallenge,
+  type TokenRecord,
+  type TokenStore,
+} from "./store.js";

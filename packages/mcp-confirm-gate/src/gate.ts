@@ -114,20 +114,16 @@ export class ConfirmGate {
     const now = this.now();
 
     if (code === undefined) {
-      const sends = r.stepUp?.sends ?? 0;
-      if (sends >= (s.maxSends ?? 3)) return { ok: false, code: "OTP_LOCKED" };
       const otp = String(randomInt(0, 10 ** digits)).padStart(digits, "0");
       const salt = randomBytes(16).toString("hex");
       const expiresAt = Math.min(now + (s.ttlMs ?? 5 * 60_000), r.expiresAt);
-      await this.store.update(r.hash, {
-        stepUp: {
-          codeHash: sha256(`${salt}:${otp}`),
-          salt,
-          expiresAt,
-          attempts: 0,
-          sends: sends + 1,
-        },
-      });
+      // Counted and stored in one atomic step, so parallel requests can't send past the cap.
+      const sent = await this.store.claimSend(
+        r.hash,
+        { codeHash: sha256(`${salt}:${otp}`), salt, expiresAt },
+        s.maxSends ?? 3,
+      );
+      if (sent === undefined) return { ok: false, code: "OTP_LOCKED" };
       await s.send(otp, { target: r.target, caller, expiresAt });
       return { ok: false, code: "STEP_UP_REQUIRED", expiresAt, attemptsLeft: maxAttempts };
     }
@@ -135,6 +131,13 @@ export class ConfirmGate {
     const st = r.stepUp;
     if (!st) return { ok: false, code: "OTP_INVALID", attemptsLeft: maxAttempts };
     if (st.expiresAt <= now) return { ok: false, code: "OTP_EXPIRED" };
+    // Reserve the try before checking the code: parallel guesses each take their own slot, so
+    // no more than maxAttempts guesses are ever compared, however many arrive at once.
+    const attempt = await this.store.claimAttempt(r.hash, st.codeHash);
+    if (attempt === undefined) {
+      return { ok: false, code: "OTP_INVALID", attemptsLeft: maxAttempts }; // a newer code was sent
+    }
+    if (attempt > maxAttempts) return { ok: false, code: "OTP_LOCKED" };
     const given = code.replace(/[\s-]/g, "");
     const match =
       given.length === digits &&
@@ -143,13 +146,11 @@ export class ConfirmGate {
         Buffer.from(st.codeHash, "hex"),
       );
     if (!match) {
-      const attempts = st.attempts + 1;
-      if (attempts >= maxAttempts) {
-        await this.store.update(r.hash, { expiresAt: now, stepUp: { ...st, attempts } });
+      if (attempt >= maxAttempts) {
+        await this.store.update(r.hash, { expiresAt: now });
         return { ok: false, code: "OTP_LOCKED" };
       }
-      await this.store.update(r.hash, { stepUp: { ...st, attempts } });
-      return { ok: false, code: "OTP_INVALID", attemptsLeft: maxAttempts - attempts };
+      return { ok: false, code: "OTP_INVALID", attemptsLeft: maxAttempts - attempt };
     }
     return this.spend(token, caller);
   }

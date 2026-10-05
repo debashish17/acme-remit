@@ -218,7 +218,7 @@ The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTM
 
 ## Open source: `mcp-confirm-gate`
 
-The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. It is published on npm as [`mcp-confirm-gate`](https://www.npmjs.com/package/mcp-confirm-gate) (`npm install mcp-confirm-gate`, MIT, no runtime dependencies). The source and its 13 tests, run in CI with the rest, are in [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate).
+The confirmation pattern behind every transfer here, extracted as a small, dependency-free package for any MCP server: single-use tokens bound to the caller, a read-back before confirming, and an optional step-up code sent out of band that the model never sees. It is published on npm as [`mcp-confirm-gate`](https://www.npmjs.com/package/mcp-confirm-gate) (`npm install mcp-confirm-gate`, MIT, no runtime dependencies). The source and its 16 tests, run in CI with the rest, are in [`packages/mcp-confirm-gate`](packages/mcp-confirm-gate). Use 0.2.0 or later: in 0.1.0, parallel wrong codes were not counted (see its [CHANGELOG](packages/mcp-confirm-gate/CHANGELOG.md)). The server here keeps its own SQLite implementation of the same pattern, whose checks run synchronously, so it was not affected. It does not import the package.
 
 ## Threat model
 
