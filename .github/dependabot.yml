@@ -10,6 +10,17 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Pinned majors. Each move is a deliberate change, made by hand, not a weekly bump.
+      # CLAUDE.md pins the MCP SDK to 1.x; ext-apps 2.x needs the split v2 SDK (FRICTION_LOG.md).
+      - dependency-name: "@modelcontextprotocol/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@modelcontextprotocol/ext-apps"
+        update-types: ["version-update:semver-major"]
+      # Types must match the Node 22 runtime (package.json engines), or code type-checks against
+      # APIs that don't exist at runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
