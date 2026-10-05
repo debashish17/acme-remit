@@ -165,10 +165,10 @@ describe("scripted mode: Play demo through the real tools, no language model", (
       /^It's under review\. Please upload updated Emirates ID/,
     );
     expect(at("Cancel the one to my NRE account.")?.reply).toMatch(
-      /^Cancel the 13,000 dirham transfer/,
+      /^Cancel the 5,000 dirham transfer/,
     );
     expect(at("Yes.", 1)?.tool_calls[0]).toMatchObject({ name: "cancel_transfer" });
-    expect(at("Yes.", 1)?.reply).toMatch(/^Cancelled\. 13,000 dirhams go back to your card/);
+    expect(at("Yes.", 1)?.reply).toMatch(/^Cancelled\. 5,000 dirhams go back to your card/);
     expect(at("Tell me when the dirham hits 26.5.")?.tool_calls[0]).toMatchObject({
       name: "set_rate_alert",
     });

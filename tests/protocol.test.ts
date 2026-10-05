@@ -256,7 +256,7 @@ describe("tools/call", () => {
     const res = await call("get_pending", {});
     expect(res.body.result.isError).toBeFalsy();
     expect(res.body.result.structuredContent).toMatchObject({
-      under_review: [{ transfer_ref: "ACM-240120", send_amount: 13000 }],
+      under_review: [{ transfer_ref: "ACM-240120", send_amount: 5000 }],
       last_by_recipient: expect.arrayContaining([
         expect.objectContaining({ recipient: "Mum", send_amount: 2000 }),
       ]),

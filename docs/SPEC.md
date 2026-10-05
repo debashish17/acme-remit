@@ -168,9 +168,9 @@ out: { "kyc_tier": "Verified (Emirates ID)", "next_tier": "Verified Plus: add sa
 // 9 cancel_transfer (preview, then execute)
 in:  { "transfer_ref": "ACM-240120" }
 out: { "cancel_token": "cx_41d7...", "expires_at": "...+5m", "status": "ON_HOLD", "cancellable": true,
-       "preview": "Cancel the 13,000 dirham transfer to your NRE account. 13,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?" }
+       "preview": "Cancel the 5,000 dirham transfer to your NRE account. 5,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?" }
 in:  { "transfer_ref": "ACM-240120", "cancel_token": "cx_41d7..." }
-out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount": 13000, "currency": "AED", "to": "card ending 8812", "eta": "2-7 working days" },
+out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount": 5000, "currency": "AED", "to": "card ending 8812", "eta": "2-7 working days" },
        "limits_now": { "monthly": { "remaining": 14500 } } }
   or { "refused": { "code": "CANCEL_WINDOW_CLOSED", "status": "SENT_TO_PARTNER",
        "resolution": "This transfer has already been sent. A recall needs the recipient's consent; Acme support can request one from the app." } }
@@ -193,13 +193,13 @@ out: { "topic": "lrs", "title": "The Liberalised Remittance Scheme (LRS)",
 in:  {}
 out: { "open_quotes": [ { "quote_id": "q_7f3a", "recipient": "Mum", "beneficiary_id": "ben_01", "send_amount": 2000,
          "receive_amount": 51598.09, "status": "open", "rate_locked_until": "..." } ],
-       "under_review": [ { "transfer_ref": "ACM-240120", "recipient": "My NRE account", "send_amount": 13000,
+       "under_review": [ { "transfer_ref": "ACM-240120", "recipient": "My NRE account", "send_amount": 5000,
          "sent_on": "2026-10-01", "customer_label": "Under review", "cancellable": true,
          "action_required": { "type": "document", "document": "updated Emirates ID", "how": "upload in the Acme app", "deadline": "2026-10-08" } } ],
        "fired_alerts": [ { "alert_id": "al_01", "pair": "AED/INR", "target": 26.5, "direction": "above", "fired_at": "..." } ],
-       "last_by_recipient": [ { "beneficiary_id": "ben_01", "recipient": "Mum", "full_name": "Sunita Nair", "transfer_ref": "ACM-240119",
+       "last_by_recipient": [ { "beneficiary_id": "ben_01", "recipient": "Mum", "full_name": "Sunita Nair", "transfer_ref": "ACM-240116",
          "send_amount": 2000, "payout_method": "bank_deposit", "purpose": "family_maintenance", "date": "2026-10-01", "customer_label": "Paid out" } ],
-       "summary": "Your 13,000 dirham transfer to My NRE account is under review: upload updated Emirates ID in the Acme app by 8 October." }
+       "summary": "Your 5,000 dirham transfer to My NRE account is under review: upload updated Emirates ID in the Acme app by 8 October." }
 ```
 
 Every refusal is structured (`code`, numbers, `resolution`) so the model can explain it well. No tool ever returns a bare string error.
@@ -265,6 +265,9 @@ interface LimitService {
 // Tier "Verified": per transaction 5,000 AED (card), daily 10,000, monthly 20,000, first transfer to a recipient
 // added < 24 h ago 2,000, single transfer >= 15,000 -> SOURCE_OF_FUNDS_REQUIRED (would become an RFI).
 // Cash pickup: per transaction 9,180 AED (~USD 2,500), 30 per recipient per year, receive amount <= 50,000 INR.
+// On Verified, the 5,000 card cap (and the 10,000 daily cap) bind before source of funds and the
+// 9,180 cash-pickup cap, so those two refuse only on a tier with higher caps; limits.test.ts
+// checks them on such a test tier. The other two cash-pickup caps refuse on Verified.
 
 interface ConfirmationGate {
   issue(quoteId: string, callerId: string): { token: string; expiresAt: string };
@@ -347,9 +350,9 @@ CREATE TABLE sms_outbox (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, to_last4
 | `ben_03` | Rahul (college), Rahul Menon, friend, bank deposit, ICICI Bank, acct \*\*\*\*3302, Kochi, Kerala, name verified, purpose gift, aliases `["rahul menon","college rahul"]` |
 | `ben_04` | My NRE account, Priya Nair, self, bank deposit, SBI, acct \*\*\*\*0917, NRE, Chandigarh, purpose savings\_own\_account, aliases `["my account","nre","savings","myself"]` |
 | Transfers, past | 7 months: 2,000 AED to Mum on the 2nd of each month, PAID\_OUT with UTRs. 1,500 AED to brother in Jul and Sep by UPI. 500 AED to friend in Aug: RETURNED (name mismatch), refund 475 AED (485 converted, about 10 lost to the rate on the return date), fee kept |
-| Transfers, this month | Mum 2,000 (2nd, PAID\_OUT), brother 1,500 (5th, PAID\_OUT), NRE account 13,000 (10th, ON\_HOLD, RFI: updated Emirates ID). Monthly used 16,500 of 20,000, so one more 2,000 passes and the next 3,000 refuses on camera |
+| Transfers, this month | Mum 2,000 (2nd, PAID\_OUT), brother 1,500 (5th, PAID\_OUT), NRE account 5,000 (6th, PAID\_OUT), 3,000 (8th, PAID\_OUT) and 5,000 (10th, ON\_HOLD, RFI: updated Emirates ID). Every seeded transfer fits today's limits (5,000 per card transfer, 10,000 a day). Monthly used 16,500 of 20,000, so one more 2,000 passes and the next 3,000 refuses on camera |
 | Rates history | 7 days each for AED/INR, USD/INR, GBP/INR, pulled once from Frankfurter when writing the seed script and hard-coded; AED/INR derived from USD/INR at the 3.6725 peg |
-| Limits config | Tier Verified: per transaction 5,000 AED, daily 10,000, monthly 20,000, new-recipient first transfer 2,000, source-of-funds threshold 15,000. Cash pickup 9,180 AED per transaction, 30 per recipient per year, 50,000 INR cash cap. Next tier Verified Plus (salary proof): monthly 60,000 |
+| Limits config | Tier Verified: per transaction 5,000 AED, daily 10,000, monthly 20,000, new-recipient first transfer 2,000, source-of-funds threshold 15,000. Cash pickup 9,180 AED per transaction, 30 per recipient per year, 50,000 INR cash cap. Next tier Verified Plus (salary proof): monthly 60,000. On Verified, the 5,000 card cap binds first, so the source-of-funds threshold and the 9,180 cash-pickup cap apply on tiers with higher caps |
 | FX margin | AED/INR 0.9%; USD/INR 0.8%; GBP/INR 1.0%; one board rate, no per-method rate difference |
 | Fees | bank deposit 15 AED, UPI 15 AED, cash pickup 20 AED; flat per transfer, taken out of the send amount (the card is charged the send amount; receive = (send − fee) × rate) |
 | Purpose rules | business refused; property\_purchase needs documents; gift to non-relative warns about Indian gift tax; others pass |
@@ -605,13 +608,13 @@ Built around the step-up moment, the strongest 15 seconds we have: the assistant
 | Time | Beat | On screen |
 | --- | --- | --- |
 | 0:00–0:12 | "Voice is the weakest way to approve a payment. Acme Remit is an Alexa+ add-on, a self-hosted MCP server, that makes it safe enough to send money home from the UAE to India." | The simulator, with the banner "Simulated ledger: no real funds move" in view |
-| 0:12–0:22 | "Hi, anything I should know?" → "Welcome back. Your 13,000 dirham transfer to your NRE account is under review: upload an updated Emirates ID by 9 October." Context from the ledger, across sessions | Protocol panel shows `get_pending` |
+| 0:12–0:22 | "Hi, anything I should know?" → "Welcome back. Your 5,000 dirham transfer to your NRE account is under review: upload an updated Emirates ID by 9 October." Context from the ledger, across sessions | Protocol panel shows `get_pending` |
 | 0:22–0:30 | "What's the rupee at today?" → Acme's rate and the weekly trend | Rate card; protocol panel shows `get_rate` |
 | 0:30–1:14 | **The send.** "Send 2,000 dirhams to Mum." → the read-back with recipient, bank, purpose, fee, card and guaranteed rupees, then "Shall I go ahead?" → "Yes." → "I've texted a code to your phone ending 4471." → the simulated phone shows the SMS (code, amount, recipient) → the user reads "four eight two nine one three" → confirmed, the orb gathers into a check mark, the receipt appears. Voice-over: "The code never reaches the model. Only someone holding the phone can approve, and the code works for this one payment." | Read-back card with its 5-minute countdown, then the "Check your phone" card and the phone toast; protocol panel: `prepare_transfer` (token masked), `confirm_transfer` "code texted · nothing sent yet", `confirm_transfer` with the masked code "moves money"; ledger strip updates |
 | 1:14–1:24 | "Send her another three thousand." → refused: monthly limit, 1,500 left until 1 November, add salary proof to raise it | Refusal card and JSON in the panel: the server enforced it, not the model |
 | 1:24–1:32 | "Send 500 to Rahul." → "Do you mean your brother Rahul Nair, or your friend Rahul Menon?" | Choose card from `resolve_beneficiary` |
 | 1:32–1:48 | "Where's Mum's money?" → paid out, with the bank reference (UTR). "And the one to my NRE account?" → under review, upload an updated Emirates ID in the app, and no reason given | Receipt steps reach Paid out (dev control "Advance ticker" before the take); status card with the action needed |
-| 1:48–2:04 | "Cancel the one to my NRE account." → the preview: 13,000 dirhams back to the card → "Yes." → cancelled, 14,500 of the monthly limit free again | Cancel card, then the cancelled card; `cancel_transfer` twice in the panel; ledger strip updates |
+| 1:48–2:04 | "Cancel the one to my NRE account." → the preview: 5,000 dirhams back to the card → "Yes." → cancelled, 6,500 of the monthly limit free again | Cancel card, then the cancelled card; `cancel_transfer` twice in the panel; ledger strip updates |
 | 2:04–2:12 | "Does the LRS limit apply to me?" → no, it covers money sent out of India, from Acme's own help content, not the model's memory | Help card from `get_help`, with its source and disclaimer |
 | 2:12–2:20 | "Tell me when the dirham hits 26.5." → alert set, then fired | Alert card, then the toast (dev control "Fire rate alert") |
 | 2:20–2:38 | How it's built: 14 MCP tools over Streamable HTTP, the step-up and token tests passing, the conversation evals, CI green, runs with nothing but Node (scripted mode), Bedrock (Nova 2 Lite) or any OpenAI-compatible model for the live assistant, Polly for the voice, and the Agent Skill | Editor, terminal and the README's threat model |

@@ -176,18 +176,27 @@ const TRANSFERS: SeedTransfer[] = [
   },
   mum(-1),
   ben02(-1),
-  // this month: 2,000 + 1,500 + 13,000 = 16,500 of the 20,000 monthly limit
+  // This month: 2,000 + 1,500 + 5,000 + 3,000 + 5,000 = 16,500 of the 20,000 monthly limit. Every
+  // transfer fits the limits it would be checked against today: 5,000 per card-funded transfer,
+  // 10,000 a day (tests/db.test.ts checks this).
   mum(0),
   ben02(0),
-  {
-    monthOffset: 0,
-    day: 10,
-    beneficiaryId: "ben_04",
-    sendAed: 13000,
-    purpose: "savings_own_account",
-    status: "ON_HOLD",
-  },
+  nre(6, 5000, "PAID_OUT"),
+  nre(8, 3000, "PAID_OUT"),
+  nre(10, 5000, "ON_HOLD"),
 ];
+
+/** Savings to the customer's own NRE account. */
+function nre(day: number, sendAed: number, status: SeedStatus): SeedTransfer {
+  return {
+    monthOffset: 0,
+    day,
+    beneficiaryId: "ben_04",
+    sendAed,
+    purpose: "savings_own_account",
+    status,
+  };
+}
 
 function mum(monthOffset: number): SeedTransfer {
   return {
@@ -211,7 +220,8 @@ function ben02(monthOffset: number): SeedTransfer {
   };
 }
 
-const FIRST_REF = 240108;
+// Two below 240108 since the NRE transfers were split, so the ON_HOLD one is still ACM-240120.
+const FIRST_REF = 240106;
 const RETURN_REASON = "recipient bank reported a name mismatch";
 // 485 AED converted at the August board rate (25.7268) -> 12,477.49 INR; returned and bought back at
 // the 17 Aug rate plus margin (26.2683) -> 475.00 AED: a 10 AED FX loss, and the 15 AED fee is kept.

@@ -73,8 +73,13 @@ describe("BeneficiaryService.list", () => {
       send_amount_minor: 200_000,
       currency: "AED",
     });
-    // ben_03's only transfer was RETURNED; ben_04's is ON_HOLD: neither received money
+    // ben_03's only transfer was RETURNED, so it never received money. ben_04 last received on
+    // 8 October; the 10 October transfer is under review, so it doesn't count.
     expect(list[2]?.lastSent).toBeNull();
-    expect(list[3]?.lastSent).toBeNull();
+    expect(list[3]?.lastSent).toEqual({
+      date: "2026-10-08",
+      send_amount_minor: 300_000,
+      currency: "AED",
+    });
   });
 });
