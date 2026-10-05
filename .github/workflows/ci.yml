@@ -16,7 +16,7 @@ jobs:
     name: test, lint, typecheck
     # Pinned: ubuntu-latest moves to Ubuntu 26 on 2026-10-19, inside the submission window.
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -41,3 +41,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # Play all and a code typed into the MCP Apps view, in the Chrome the runner already has
+      # (scripted mode: no model, no AWS).
+      - name: Browser smoke test
+        run: pnpm e2e

@@ -83,7 +83,7 @@ pnpm dev
 # MCP endpoint: POST http://127.0.0.1:3000/mcp  (Bearer token from .env)
 ```
 
-`pnpm test`, `pnpm lint`, `pnpm typecheck` and `pnpm build` are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
+`pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm e2e` (Playwright, using your installed Chrome; scripted mode, so no model or AWS calls) are what CI runs. `pnpm db:seed` wipes and reloads the demo data, so every run starts identical; the server also loads it on first start if the database is empty. `pnpm build && pnpm start` runs the bundled server from `dist/`.
 
 ### The simulator
 
@@ -212,7 +212,7 @@ How the simulator hosts it:
 }
 ```
 
-CI tests the view's state logic, the resource, the tool links and the simulator's host routes. The browser flow (the view in its sandboxed frame, the code typed into it, the live receipt) was checked by hand in our simulator and in the official reference host on 2026-10-04. Hosts that connect only to remote servers, such as claude.ai, need a hosted copy over HTTPS.
+CI tests the view's state logic, the resource, the tool links and the simulator's host routes, and a Playwright test in Chrome runs Play all and types a code into the view through to Paid out (`pnpm e2e`). The view was also checked by hand in the official reference host on 2026-10-04. Hosts that connect only to remote servers, such as claude.ai, need a hosted copy over HTTPS.
 
 The view's source is `src/ui/transfer/`. `pnpm build:ui` bundles it into one HTML file (`pnpm dev`, `pnpm build` and the tests run that step first), and the server serves it with `resources/read`. The contract is the "MCP Apps view" section of `docs/SPEC.md`.
 

@@ -569,7 +569,7 @@ The planned Alexa+ CLI attempt was dropped: the FAQ says participants can't get 
 - [x] README: the view, and how to open it in another MCP Apps host
 
 * Milestone: in the simulator, with nothing but Node, sending money shows `ui://acme-remit/transfer` moving from quote to read-back with countdown to code entry to live receipt; a code typed in the view reaches the server through the host's `tools/call`, never through the model; `pnpm test`, `pnpm lint` and `pnpm typecheck` are green
-* Status: done. CI covers the view's state logic, the resource, the tool links and the simulator's host routes. The browser flow was checked by hand in a headless browser (DOM only) and in the official reference host: read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
+* Status: done. CI covers the view's state logic, the resource, the tool links and the simulator's host routes, and a Playwright test in Chrome (`e2e/`) runs Play all and the code typed into the view through to Paid out. The browser flow was also checked by hand in the official reference host: read-back, Confirm, code entry with a wrong code then the right one, the live receipt reaching Paid out, and the assistant told
 
 **Phase 5 · Oct 19–21 · Video and write-ups**
 

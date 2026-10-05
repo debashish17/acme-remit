@@ -4,3 +4,5 @@ coverage/
 pnpm-lock.yaml
 docs/
 *.md
+test-results/
+playwright-report/

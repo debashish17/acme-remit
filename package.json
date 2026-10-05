@@ -24,6 +24,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
+    "e2e:serve": "tsx scripts/build-ui.ts && tsx src/db/cli.ts seed && tsx src/server/index.ts",
     "lint": "eslint . && prettier --check .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui",
     "format": "prettier --write .",
@@ -42,6 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.4",
