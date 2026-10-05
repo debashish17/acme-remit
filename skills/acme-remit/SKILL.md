@@ -36,7 +36,7 @@ Call `get_pending` once. If its `summary` mentions something (a transfer under r
 4. **Read back, word for word.** Show or say `read_back` exactly as written, including its final question. Then **stop and wait** for the user's next message.
 5. **Only on a clear yes** ("yes", "go ahead", "confirm") to that read-back, call `confirm_transfer { confirmation_token }`. If they ask a question, hesitate, change anything or say no, do not confirm; a change means quote and prepare again. A yes given before the read-back does not count.
 6. **Step-up.** That call returns `refused.code: "STEP_UP_REQUIRED"` with `sent_to` ("phone ending 4471"). Nothing has moved. A 6-digit code was texted to the user. Ask them to read it out. The code is never in any tool result: never guess, invent or reuse one.
-7. **Confirm with the code.** `confirm_transfer { confirmation_token, otp }` with the six digits the user read (spaces are fine). Success returns `transfer_ref`, `status` and `customer_label`.
+7. **Confirm with the code.** `confirm_transfer { confirmation_token, otp }` with the code as the user read it: digits or words both work. Success returns `transfer_ref`, `status` and `customer_label`.
    - `OTP_INVALID` (`attempts_left`): ask them to read the code again.
    - `OTP_EXPIRED`: offer to send a new code (call step 5 again).
    - `OTP_LOCKED`: nothing was sent; start again from step 2.

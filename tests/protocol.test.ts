@@ -168,6 +168,39 @@ describe("tools/call", () => {
     expect(keysDeep(result.structuredContent).filter((k) => k.endsWith("_minor"))).toEqual([]);
   });
 
+  it("a code read out as words confirms over MCP, and junk gets a structured refusal", async () => {
+    // Its own app: confirming a transfer would change "latest" for the tests that follow.
+    const own = await testApp();
+    const q = (
+      await call("quote_transfer", { send_amount: 500, beneficiary_id: "ben_01" }, own.app)
+    ).body.result.structuredContent;
+    const token = (await call("prepare_transfer", { quote_id: q.quote_id }, own.app)).body.result
+      .structuredContent.confirmation_token;
+    await call("confirm_transfer", { confirmation_token: token }, own.app);
+    const sms = own.core.outbox.since("usr_priya", "2000-01-01T00:00:00Z").at(-1)?.body ?? "";
+    const code = /\b(\d{6})\b/.exec(sms)?.[1] ?? "";
+    const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+    // Not a -32602 schema error: the model gets a refusal it can act on, and no try is used.
+    const junk = (
+      await call("confirm_transfer", { confirmation_token: token, otp: "banana." }, own.app)
+    ).body.result;
+    expect(junk.structuredContent).toMatchObject({
+      refused: { code: "OTP_INVALID", attempts_left: 3 },
+    });
+
+    const spoken = `${code
+      .split("")
+      .map((d) => words[Number(d)])
+      .join(" ")}.`;
+    const done = (
+      await call("confirm_transfer", { confirmation_token: token, otp: spoken }, own.app)
+    ).body.result;
+    expect(done.isError, JSON.stringify(done)).toBeFalsy();
+    expect(done.structuredContent).toMatchObject({ status: "SCREENING" });
+    own.core.db.close();
+  });
+
   it("get_rate returns the live snapshot, derived at the peg", async () => {
     const res = await call("get_rate", { from: "AED", to: "INR" });
     expect(res.body.result.structuredContent).toMatchObject({

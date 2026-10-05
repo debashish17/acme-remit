@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ChatReply, ToolCallSummary } from "./chat.js";
 import type { Exchange, McpRelay } from "./relay.js";
+import { spokenDigits } from "../../core/spoken.js";
 
 /**
  * Scripted mode: the simulator with no language model, for a clean clone with no AWS account or
@@ -56,22 +57,6 @@ interface Convo {
   recipient?: { id: string; nickname: string };
 }
 
-const WORD_DIGITS: Record<string, string> = {
-  zero: "0",
-  oh: "0",
-  o: "0",
-  one: "1",
-  two: "2",
-  three: "3",
-  four: "4",
-  for: "4",
-  five: "5",
-  six: "6",
-  seven: "7",
-  eight: "8",
-  ate: "8",
-  nine: "9",
-};
 const SMALL: Record<string, number> = {
   one: 1,
   two: 2,
@@ -105,11 +90,9 @@ const norm = (t: string) =>
 
 /** A 6-digit code in the text, said as digits or words ("four eight two nine one three"). */
 export function findCode(text: string): string | undefined {
-  const digits = norm(text)
-    .split(/[\s,.-]+/)
-    .map((w) => (/^\d+$/.test(w) ? w : (WORD_DIGITS[w] ?? "")))
-    .join("");
-  return /^\d{6}$/.test(digits) ? digits : (/(\d{6})/.exec(digits)?.[1] ?? undefined);
+  // The same reader as the server's step-up check; a longer run of digits gives its first six.
+  const digits = spokenDigits(text);
+  return digits.length === 6 ? digits : (/(\d{6})/.exec(digits)?.[1] ?? undefined);
 }
 
 /** "2,000", "500", "three thousand", "one thousand five hundred" -> a number. */

@@ -85,13 +85,35 @@ describe("StepUpService.confirm", () => {
     expect(card.charges).toHaveLength(1);
   });
 
+  it("takes the code as the user said it: words, digits, punctuation", async () => {
+    const token = await prepared();
+    core.stepUp.confirm(USER_ID, token, CALLER);
+    const done = ok(core.stepUp.confirm(USER_ID, token, CALLER, "four eight two nine one three."));
+    expect(done).toMatchObject({ status: "SCREENING" });
+    expect(card.charges).toHaveLength(1);
+  });
+
+  it("something that isn't six digits is refused without using a try", async () => {
+    const token = await prepared();
+    core.stepUp.confirm(USER_ID, token, CALLER);
+    for (const said of ["banana", "12345", "four eight two"]) {
+      const r = core.stepUp.confirm(USER_ID, token, CALLER, said);
+      expect(r, said).toMatchObject({ refused: { code: "OTP_INVALID", attempts_left: 3 } });
+      expect(isRefusal(r) && r.refused.resolution).toMatch(/six digits/);
+    }
+    // The tries are all still there: the right code works.
+    expect(ok(core.stepUp.confirm(USER_ID, token, CALLER, "482913"))).toMatchObject({
+      status: "SCREENING",
+    });
+  });
+
   it("a wrong code counts down, and the third voids the confirmation", async () => {
     const token = await prepared();
     core.stepUp.confirm(USER_ID, token, CALLER);
     expect(core.stepUp.confirm(USER_ID, token, CALLER, "000000")).toMatchObject({
       refused: { code: "OTP_INVALID", attempts_left: 2 },
     });
-    expect(core.stepUp.confirm(USER_ID, token, CALLER, "12345")).toMatchObject({
+    expect(core.stepUp.confirm(USER_ID, token, CALLER, "111112")).toMatchObject({
       refused: { code: "OTP_INVALID", attempts_left: 1 },
     });
     expect(core.stepUp.confirm(USER_ID, token, CALLER, "111111")).toMatchObject({
