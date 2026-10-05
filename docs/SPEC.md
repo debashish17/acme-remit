@@ -171,7 +171,7 @@ out: { "cancel_token": "cx_41d7...", "expires_at": "...+5m", "status": "ON_HOLD"
        "preview": "Cancel the 5,000 dirham transfer to your NRE account. 5,000 dirhams, including the 15 dirham fee, go back to your card ending 8812 within 2 to 7 working days. Shall I cancel it?" }
 in:  { "transfer_ref": "ACM-240120", "cancel_token": "cx_41d7..." }
 out: { "transfer_ref": "ACM-240120", "status": "CANCELLED", "refund": { "amount": 5000, "currency": "AED", "to": "card ending 8812", "eta": "2-7 working days" },
-       "limits_now": { "monthly": { "remaining": 14500 } } }
+       "limits_now": { "monthly": { "remaining": 6500 } } }
   or { "refused": { "code": "CANCEL_WINDOW_CLOSED", "status": "SENT_TO_PARTNER",
        "resolution": "This transfer has already been sent. A recall needs the recipient's consent; Acme support can request one from the app." } }
   or { "refused": { "code": "TOKEN_EXPIRED" | "TOKEN_USED" | "TOKEN_UNKNOWN", "resolution": "..." } }
